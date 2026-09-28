@@ -1,0 +1,15 @@
+import { describe, expect, it } from "vitest";
+
+import { cn } from "@/lib/utils";
+
+describe("cn", () => {
+  it("joins conditional class names", () => {
+    expect(cn("px-2", false && "hidden", { "font-bold": true })).toBe(
+      "px-2 font-bold",
+    );
+  });
+
+  it("resolves conflicting Tailwind classes, last one wins", () => {
+    expect(cn("px-2 py-1", "px-4")).toBe("py-1 px-4");
+  });
+});

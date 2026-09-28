@@ -1,0 +1,19 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Page {
+  id               String    @id @default(cuid())
+  name             String // internal name shown in the dashboard
+  slug             String    @unique // public URL: /p/{slug}
+  draftContent     Json // PageContent (always present)
+  publishedContent Json? // PageContent snapshot; null = never published / unpublished
+  publishedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
