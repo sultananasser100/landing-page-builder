@@ -1,3 +1,5 @@
+import { useRef } from "react";
+
 import { Button } from "@/components/ui/button";
 import { SectionInspector } from "@/features/sections/inspectors";
 import {
@@ -13,6 +15,64 @@ import { sectionLabel } from "./section-summary";
 
 export const REMOVE_SECTION_CONFIRMATION = (label: string) =>
   `Remove the ${label} section? You can undo this with “Reset changes”.`;
+
+/**
+ * The non-drag way to reorder (WCAG 2.2 SC 2.5.7): single-click buttons that
+ * move the selected section one position. When a button becomes disabled at an
+ * end of the list, focus moves to the other button instead of being lost.
+ */
+export function SectionMoveControls({
+  label,
+  index,
+  count,
+  onMove,
+}: {
+  label: string;
+  index: number;
+  count: number;
+  onMove: (toIndex: number) => void;
+}) {
+  const upRef = useRef<HTMLButtonElement>(null);
+  const downRef = useRef<HTMLButtonElement>(null);
+  const isFirst = index <= 0;
+  const isLast = index >= count - 1;
+
+  const move = (toIndex: number) => {
+    onMove(toIndex);
+    requestAnimationFrame(() => {
+      if (toIndex === 0) downRef.current?.focus();
+      else if (toIndex === count - 1) upRef.current?.focus();
+    });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="text-xs text-muted-foreground">
+        Position {index + 1} of {count}
+      </span>
+      <Button
+        ref={upRef}
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={isFirst}
+        onClick={() => move(index - 1)}
+      >
+        Move up<span className="sr-only">: {label} section</span>
+      </Button>
+      <Button
+        ref={downRef}
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={isLast}
+        onClick={() => move(index + 1)}
+      >
+        Move down<span className="sr-only">: {label} section</span>
+      </Button>
+    </div>
+  );
+}
 
 function PageSettingsInspector({
   meta,
@@ -74,6 +134,7 @@ export function InspectorPanel({
   onUpdateMeta,
   onUpdateSection,
   onRemoveSection,
+  onMoveSection,
 }: {
   content: PageContent;
   /** The selected section; undefined when page settings are selected. */
@@ -85,6 +146,8 @@ export function InspectorPanel({
   onUpdateMeta: (field: "title" | "description", value: string) => void;
   onUpdateSection: (section: Section) => void;
   onRemoveSection: (id: string) => void;
+  /** Moves a section to its final position (the reducer's moveSection). */
+  onMoveSection: (id: string, toIndex: number) => void;
 }) {
   return (
     <aside aria-label="Inspector" className="p-4">
@@ -105,6 +168,12 @@ export function InspectorPanel({
               Remove section
             </Button>
           </div>
+          <SectionMoveControls
+            label={sectionLabel(section)}
+            index={sectionIndex}
+            count={content.sections.length}
+            onMove={(toIndex) => onMoveSection(section.id, toIndex)}
+          />
           <SectionInspector
             // Remount per section so list focus state never leaks between sections.
             key={section.id}

@@ -18,6 +18,7 @@ import {
 import { EditorViewToggle, type EditorView } from "./editor-view-toggle";
 import { InspectorPanel } from "./inspector-panel";
 import { SectionOutline } from "./section-outline";
+import { sectionLabel } from "./section-summary";
 import {
   countIssues,
   issueAt,
@@ -40,6 +41,7 @@ export function PageEditor({
 }) {
   const [state, dispatch] = useReducer(editorReducer, initialContent, createEditorState);
   const [view, setView] = useState<EditorView>("edit");
+  const [announcement, setAnnouncement] = useState("");
   const inspectorRef = useRef<HTMLDivElement>(null);
 
   const { content, selection } = state;
@@ -97,8 +99,21 @@ export function PageEditor({
   const addSection = (type: SectionType) =>
     dispatch({ type: "addSection", section: sectionDefinitions[type].createDefault() });
 
+  // Drag and drop, the handle's arrow keys, and the Move up/down buttons all
+  // reorder through the reducer; the result is announced to screen readers.
+  const moveSection = (id: string, toIndex: number) => {
+    const section = content.sections.find((s) => s.id === id);
+    if (!section) return;
+    dispatch({ type: "moveSection", id, toIndex });
+    setAnnouncement(
+      `${sectionLabel(section)} moved to position ${toIndex + 1} of ${content.sections.length}.`,
+    );
+  };
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col lg:h-dvh">
+    // On desktop the editor fills exactly the viewport (flex-none lets h-dvh
+    // apply) and each column scrolls on its own; the document does not scroll.
+    <div className="flex min-h-0 flex-1 flex-col lg:h-dvh lg:flex-none">
       <EditorHeader
         page={page}
         counts={totals}
@@ -107,10 +122,10 @@ export function PageEditor({
       />
       <EditorViewToggle view={view} onChange={setView} />
 
-      <div className="min-h-0 flex-1 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_24rem]">
+      <div className="min-h-0 flex-1 lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_24rem] lg:grid-rows-[minmax(0,1fr)]">
         <div
           className={cn(
-            "border-b lg:col-start-1 lg:row-start-1 lg:block lg:overflow-y-auto lg:border-r lg:border-b-0",
+            "border-b lg:relative lg:col-start-1 lg:row-start-1 lg:block lg:overflow-y-auto lg:border-r lg:border-b-0",
             view === "edit" ? "block" : "hidden",
           )}
         >
@@ -121,12 +136,13 @@ export function PageEditor({
             countsFor={(index) => countIssues(validation, ["sections", index])}
             onSelect={select}
             onAdd={addSection}
+            onMove={moveSection}
           />
         </div>
 
         <div
           className={cn(
-            "lg:col-start-2 lg:row-start-1 lg:block lg:overflow-y-auto",
+            "lg:relative lg:col-start-2 lg:row-start-1 lg:block lg:overflow-y-auto",
             view === "preview" ? "block" : "hidden",
           )}
         >
@@ -141,7 +157,7 @@ export function PageEditor({
         <div
           ref={inspectorRef}
           className={cn(
-            "lg:col-start-3 lg:row-start-1 lg:block lg:overflow-y-auto lg:border-l",
+            "lg:relative lg:col-start-3 lg:row-start-1 lg:block lg:overflow-y-auto lg:border-l",
             view === "edit" ? "block" : "hidden",
           )}
         >
@@ -155,9 +171,13 @@ export function PageEditor({
             onUpdateMeta={(field, value) => dispatch({ type: "updateMeta", field, value })}
             onUpdateSection={(section) => dispatch({ type: "updateSection", section })}
             onRemoveSection={(id) => dispatch({ type: "removeSection", id })}
+            onMoveSection={moveSection}
           />
         </div>
       </div>
+      <p role="status" aria-live="polite" className="sr-only" data-testid="reorder-announcement">
+        {announcement}
+      </p>
     </div>
   );
 }
