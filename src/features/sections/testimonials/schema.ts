@@ -7,18 +7,26 @@ import {
   type ValidationMode,
 } from "../shared/fields";
 
+export const TESTIMONIALS_LIMITS = {
+  heading: 80,
+  items: { min: 1, max: 9 },
+  quote: 400,
+  name: 60,
+  role: 80,
+} as const;
+
 export function testimonialsDataSchema(mode: ValidationMode) {
   return z.strictObject({
-    heading: requiredText(mode, 80),
+    heading: requiredText(mode, TESTIMONIALS_LIMITS.heading),
     items: itemList(
       z.strictObject({
         id: idSchema,
-        quote: requiredText(mode, 400),
-        name: requiredText(mode, 60),
-        role: requiredText(mode, 80),
+        quote: requiredText(mode, TESTIMONIALS_LIMITS.quote),
+        name: requiredText(mode, TESTIMONIALS_LIMITS.name),
+        role: requiredText(mode, TESTIMONIALS_LIMITS.role),
       }),
-      1,
-      9,
+      TESTIMONIALS_LIMITS.items.min,
+      TESTIMONIALS_LIMITS.items.max,
     ),
   });
 }

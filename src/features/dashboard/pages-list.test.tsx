@@ -88,8 +88,19 @@ describe("PagesList", () => {
     );
 
     const draftHtml = render([draft]);
-    expect(draftHtml).not.toContain("<a ");
+    expect(draftHtml).not.toContain('href="/p/agency"');
+    expect(draftHtml).not.toContain('target="_blank"');
     expect(draftHtml).not.toContain("View live");
+  });
+
+  it("links every page to its editor with an accessible name", () => {
+    const html = render([published, draft]);
+    expect(html).toMatch(
+      /<a [^>]*href="\/dashboard\/pages\/p1"[^>]*>Edit<span class="sr-only"> Sample SaaS page<\/span><\/a>/,
+    );
+    expect(html).toMatch(
+      /<a [^>]*href="\/dashboard\/pages\/p2"[^>]*>Edit<span class="sr-only"> Agency draft<\/span><\/a>/,
+    );
   });
 
   it("escapes page names and slugs", () => {

@@ -24,7 +24,12 @@ export const SECTION_TYPES = [
   "footer",
 ] as const;
 
-const MAX_SECTIONS = 20;
+export const PAGE_LIMITS = {
+  /** Draft pages may be empty; publishing needs at least one section. */
+  sections: { draftMin: 0, publishMin: 1, max: 20 },
+  metaTitle: 70,
+  metaDescription: 160,
+} as const;
 
 function sectionSchema(mode: ValidationMode) {
   const section = <T extends (typeof SECTION_TYPES)[number], D extends z.ZodType>(
@@ -47,13 +52,17 @@ function pageContentSchema(mode: ValidationMode) {
   return z.strictObject({
     schemaVersion: z.literal(1),
     meta: z.strictObject({
-      title: requiredText(mode, 70),
-      description: requiredText(mode, 160),
+      title: requiredText(mode, PAGE_LIMITS.metaTitle),
+      description: requiredText(mode, PAGE_LIMITS.metaDescription),
     }),
     sections: z
       .array(sectionSchema(mode))
-      .min(mode === "publish" ? 1 : 0)
-      .max(MAX_SECTIONS)
+      .min(
+        mode === "publish"
+          ? PAGE_LIMITS.sections.publishMin
+          : PAGE_LIMITS.sections.draftMin,
+      )
+      .max(PAGE_LIMITS.sections.max)
       .superRefine(uniqueIds),
   });
 }

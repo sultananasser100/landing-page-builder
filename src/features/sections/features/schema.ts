@@ -23,19 +23,27 @@ export const FEATURE_ICONS = [
   "circle-check",
 ] as const satisfies readonly IconName[];
 
+export const FEATURES_LIMITS = {
+  heading: 80,
+  description: 300,
+  items: { min: 1, max: 12 },
+  itemTitle: 60,
+  itemDescription: 200,
+} as const;
+
 export function featuresDataSchema(mode: ValidationMode) {
   return z.strictObject({
-    heading: requiredText(mode, 80),
-    description: requiredText(mode, 300),
+    heading: requiredText(mode, FEATURES_LIMITS.heading),
+    description: requiredText(mode, FEATURES_LIMITS.description),
     items: itemList(
       z.strictObject({
         id: idSchema,
         icon: z.enum(FEATURE_ICONS),
-        title: requiredText(mode, 60),
-        description: requiredText(mode, 200),
+        title: requiredText(mode, FEATURES_LIMITS.itemTitle),
+        description: requiredText(mode, FEATURES_LIMITS.itemDescription),
       }),
-      1,
-      12,
+      FEATURES_LIMITS.items.min,
+      FEATURES_LIMITS.items.max,
     ),
   });
 }

@@ -7,17 +7,24 @@ import {
   type ValidationMode,
 } from "../shared/fields";
 
+export const FAQ_LIMITS = {
+  heading: 80,
+  items: { min: 1, max: 20 },
+  question: 150,
+  answer: 800,
+} as const;
+
 export function faqDataSchema(mode: ValidationMode) {
   return z.strictObject({
-    heading: requiredText(mode, 80),
+    heading: requiredText(mode, FAQ_LIMITS.heading),
     items: itemList(
       z.strictObject({
         id: idSchema,
-        question: requiredText(mode, 150),
-        answer: requiredText(mode, 800),
+        question: requiredText(mode, FAQ_LIMITS.question),
+        answer: requiredText(mode, FAQ_LIMITS.answer),
       }),
-      1,
-      20,
+      FAQ_LIMITS.items.min,
+      FAQ_LIMITS.items.max,
     ),
   });
 }

@@ -7,11 +7,17 @@ import {
   type ValidationMode,
 } from "../shared/fields";
 
+export const HERO_LIMITS = {
+  eyebrow: 40,
+  heading: 100,
+  subheading: 300,
+} as const;
+
 export function heroDataSchema(mode: ValidationMode) {
   return z.strictObject({
-    eyebrow: optionalText(40),
-    heading: requiredText(mode, 100),
-    subheading: requiredText(mode, 300),
+    eyebrow: optionalText(HERO_LIMITS.eyebrow),
+    heading: requiredText(mode, HERO_LIMITS.heading),
+    subheading: requiredText(mode, HERO_LIMITS.subheading),
     primaryButton: linkSchema(mode),
     secondaryButton: linkSchema(mode).optional(),
   });
