@@ -40,7 +40,7 @@ test("signs in, reaches the dashboard, and signs out", async ({ page, context })
   await signIn(page, E2E_ADMIN.email.toUpperCase(), E2E_ADMIN.password);
 
   await expect(page).toHaveURL("/dashboard");
-  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Pages" })).toBeVisible();
 
   const [sessionCookie] = (await context.cookies()).filter((c) => c.name === "lpb_session");
   expect(sessionCookie).toMatchObject({ httpOnly: true, sameSite: "Lax", path: "/" });

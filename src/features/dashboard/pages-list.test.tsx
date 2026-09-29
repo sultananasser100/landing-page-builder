@@ -1,0 +1,103 @@
+import { describe, expect, it } from "@jest/globals";
+import { renderToStaticMarkup } from "react-dom/server";
+
+import type { DashboardPage } from "@/features/pages/admin-queries";
+
+import { PageStatusBadge } from "./page-status-badge";
+import { PagesList } from "./pages-list";
+
+const published: DashboardPage = {
+  id: "p1",
+  name: "Sample SaaS page",
+  slug: "sample",
+  status: "published",
+  publishedAt: new Date("2026-09-27T08:00:00Z"),
+  updatedAt: new Date("2026-09-29T10:05:00Z"),
+};
+
+const draft: DashboardPage = {
+  id: "p2",
+  name: "Agency draft",
+  slug: "agency",
+  status: "draft",
+  publishedAt: null,
+  updatedAt: new Date("2026-09-28T09:00:00Z"),
+};
+
+function render(pages: DashboardPage[]) {
+  return renderToStaticMarkup(<PagesList pages={pages} />);
+}
+
+describe("PageStatusBadge", () => {
+  it.each([
+    ["published", "Published"],
+    ["draft", "Draft"],
+  ] as const)("labels %s pages as %s", (status, label) => {
+    expect(renderToStaticMarkup(<PageStatusBadge status={status} />)).toContain(
+      `>${label}</span>`,
+    );
+  });
+});
+
+describe("PagesList", () => {
+  it("shows an empty state without a list when there are no pages", () => {
+    const html = render([]);
+    expect(html).toContain("No pages yet");
+    expect(html).not.toContain("<ul");
+    expect(html).not.toContain("published");
+  });
+
+  it("summarises the page counts from the list itself", () => {
+    expect(render([published, draft])).toContain("2 pages · 1 published");
+    expect(render([draft])).toContain("1 page · 0 published");
+  });
+
+  it("renders one list item per page in the given order", () => {
+    const html = render([published, draft]);
+    expect(html.match(/<li/g)).toHaveLength(2);
+    expect(html.indexOf("Sample SaaS page")).toBeLessThan(html.indexOf("Agency draft"));
+  });
+
+  it("shows each page's name, status, public path and UTC dates", () => {
+    const html = render([published, draft]);
+
+    expect(html).toContain("<h2");
+    expect(html).toContain("/p/sample");
+    expect(html).toContain("/p/agency");
+    expect(html).toContain(">Published</span>");
+    expect(html).toContain(">Draft</span>");
+    expect(html).toContain(
+      '<time dateTime="2026-09-29T10:05:00.000Z">Sep 29, 2026, 10:05 AM UTC</time>',
+    );
+    expect(html).toContain(
+      '<time dateTime="2026-09-27T08:00:00.000Z">Sep 27, 2026, 8:00 AM UTC</time>',
+    );
+  });
+
+  it("only shows the published date for published pages", () => {
+    expect(render([draft])).not.toContain("Published <time");
+  });
+
+  it("links to the live page only when published, in a new tab with an accessible name", () => {
+    const publishedHtml = render([published]);
+    expect(publishedHtml).toContain('href="/p/sample"');
+    expect(publishedHtml).toContain('target="_blank"');
+    expect(publishedHtml).toContain('rel="noopener noreferrer"');
+    expect(publishedHtml).toContain(
+      "View live<span class=\"sr-only\">: Sample SaaS page (opens in a new tab)</span>",
+    );
+
+    const draftHtml = render([draft]);
+    expect(draftHtml).not.toContain("<a ");
+    expect(draftHtml).not.toContain("View live");
+  });
+
+  it("escapes page names and slugs", () => {
+    const html = render([
+      { ...published, name: "<script>alert(1)</script>", slug: "a<b" },
+    ]);
+    expect(html).not.toContain("<script>");
+    expect(html).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).toContain("/p/a&lt;b");
+  });
+});
