@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@jest/globals";
 
 import { sectionDefinitions } from "./definitions";
 import { SECTION_TYPES } from "./page-content";
