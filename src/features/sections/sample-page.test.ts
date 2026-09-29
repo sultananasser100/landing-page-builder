@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "@jest/globals";
 
 import { publishPageContentSchema, SECTION_TYPES } from "./page-content";
 import { samplePageContent } from "./sample-page";
