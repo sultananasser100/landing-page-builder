@@ -29,7 +29,11 @@ test("shows a generic error for wrong credentials", async ({ page }) => {
   await page.goto("/login");
   await signIn(page, E2E_ADMIN.email, "wrong-password");
 
-  await expect(page.getByRole("alert")).toHaveText("Invalid email or password.");
+  // Next.js renders its own (empty) route announcer with role="alert", so
+  // target the login error specifically.
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Invalid email or password." }),
+  ).toBeVisible();
   await expect(page).toHaveURL(/\/login/);
   await expect(page.getByLabel("Email")).toHaveValue(E2E_ADMIN.email);
   await expect(page.getByLabel("Password")).toHaveValue("");

@@ -1,3 +1,6 @@
+import Link from "next/link";
+
+import { buttonVariants } from "@/components/ui/button";
 import type { DashboardPage } from "@/features/pages/admin-queries";
 
 import { formatDateTimeUtc } from "./format";
@@ -59,17 +62,25 @@ function PageRow({ page }: { page: DashboardPage }) {
           ) : null}
         </p>
       </div>
-      {page.status === "published" ? (
-        <a
-          href={publicPath}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Link
+          href={`/dashboard/pages/${page.id}`}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
         >
-          View live<span className="sr-only">: {page.name} (opens in a new tab)</span>
-          <span aria-hidden="true"> ↗</span>
-        </a>
-      ) : null}
+          Edit<span className="sr-only"> {page.name}</span>
+        </Link>
+        {page.status === "published" ? (
+          <a
+            href={publicPath}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-medium underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
+          >
+            View live<span className="sr-only">: {page.name} (opens in a new tab)</span>
+            <span aria-hidden="true"> ↗</span>
+          </a>
+        ) : null}
+      </div>
     </li>
   );
 }
