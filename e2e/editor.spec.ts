@@ -27,7 +27,9 @@ async function openSampleEditor(page: Page) {
   test.skip((await editLink.count()) === 0, MISSING_SAMPLE);
 
   await editLink.click();
-  await expect(page).toHaveURL(/\/dashboard\/pages\/[^/]+$/);
+  // `next dev` compiles the editor route on first request, which can exceed
+  // the default 5s when several workers open it at once on a fresh server.
+  await expect(page).toHaveURL(/\/dashboard\/pages\/[^/]+$/, { timeout: 15_000 });
   await expect(page.getByRole("heading", { level: 1, name: SAMPLE_PAGE_NAME })).toBeVisible();
 }
 
@@ -167,6 +169,27 @@ test.describe("with the sample page", () => {
     await beforeUnload.dismiss();
   });
 
+  test("desktop editor fits the viewport and its columns scroll independently", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    const documentFitsViewport = () =>
+      page.evaluate(() => document.documentElement.scrollHeight <= window.innerHeight);
+    const previewColumn = preview(page).locator("xpath=..");
+
+    expect(await documentFitsViewport()).toBe(true);
+    expect(await previewColumn.evaluate((el) => el.scrollHeight > el.clientHeight)).toBe(true);
+
+    // Selecting a section far down scrolls only the preview column: the
+    // window stays put and the outline and header remain visible.
+    await outline(page).getByRole("button", { name: /^Footer/ }).click();
+    await expect.poll(() => previewColumn.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    expect(await page.evaluate(() => window.scrollY)).toBe(0);
+    await expect(outline(page).getByRole("button", { name: /^Hero/ })).toBeInViewport();
+    await expect(page.getByRole("heading", { level: 1, name: SAMPLE_PAGE_NAME })).toBeInViewport();
+    expect(await documentFitsViewport()).toBe(true);
+  });
+
   test("switches between edit and preview on small screens without horizontal scroll", async ({
     page,
   }) => {
@@ -186,5 +209,146 @@ test.describe("with the sample page", () => {
       () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
     );
     expect(overflows).toBe(false);
+  });
+});
+
+// Phase 6: top-level section reordering. Real drag events and key presses on
+// the handle cannot be exercised in Jest's DOM-less setup, so they are covered
+// here. Everything is in editor memory; nothing is saved.
+test.describe("section reordering", () => {
+  const ORIGINAL = ["hero", "features", "testimonials", "pricing", "faq", "cta", "footer"];
+
+  const handle = (page: Page, label: string) =>
+    outline(page).getByRole("button", { name: `Reorder ${label} section` });
+  const row = (page: Page, label: string) => handle(page, label).locator("xpath=..");
+
+  const outlineOrder = (page: Page) =>
+    outline(page)
+      .locator("[data-reorder-handle]")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-reorder-handle")));
+  const previewOrder = (page: Page) =>
+    preview(page)
+      .locator("[data-section-id]")
+      .evaluateAll((els) => els.map((el) => el.getAttribute("data-section-id")));
+
+  async function expectOrder(page: Page, ids: string[]) {
+    await expect.poll(() => outlineOrder(page)).toEqual(ids);
+    await expect.poll(() => previewOrder(page)).toEqual(ids);
+  }
+
+  /** Drags a section's handle onto the top or bottom edge of another row. */
+  async function dragSection(page: Page, from: string, to: string, placement: "before" | "after") {
+    const target = row(page, to);
+    const box = await target.boundingBox();
+    if (!box) throw new Error(`no row for ${to}`);
+    await handle(page, from).dragTo(target, {
+      targetPosition: { x: box.width / 2, y: placement === "before" ? 3 : box.height - 3 },
+    });
+  }
+
+  const announcement = (page: Page) => page.getByTestId("reorder-announcement");
+
+  test.beforeEach(async ({ page }) => {
+    await openSampleEditor(page);
+    await expectOrder(page, ORIGINAL);
+  });
+
+  test("dragging a section above another moves it up", async ({ page }) => {
+    await dragSection(page, "Pricing", "Hero", "before");
+
+    await expectOrder(page, ["pricing", "hero", "features", "testimonials", "faq", "cta", "footer"]);
+    await expect(announcement(page)).toHaveText("Pricing moved to position 1 of 7.");
+    await expect(page.getByText("Unsaved changes · Saving isn't available yet")).toBeVisible();
+  });
+
+  test("dragging a section below another moves it down", async ({ page }) => {
+    await dragSection(page, "Hero", "FAQ", "after");
+
+    await expectOrder(page, ["features", "testimonials", "pricing", "faq", "hero", "cta", "footer"]);
+    await expect(announcement(page)).toHaveText("Hero moved to position 5 of 7.");
+  });
+
+  test("the selected section stays selected, with its content, after another section moves", async ({
+    page,
+  }) => {
+    await outline(page).getByRole("button", { name: /^FAQ/ }).click();
+    const heading = inspector(page).getByLabel("Heading", { exact: true });
+    const before = await heading.inputValue();
+
+    await dragSection(page, "Footer", "Hero", "before");
+
+    await expectOrder(page, ["footer", "hero", "features", "testimonials", "pricing", "faq", "cta"]);
+    await expect(outline(page).getByRole("button", { name: /^FAQ/ })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    await expect(inspector(page).getByRole("heading", { name: "FAQ" })).toBeVisible();
+    await expect(inspector(page).getByText("Position 6 of 7")).toBeVisible();
+    await expect(heading).toHaveValue(before);
+  });
+
+  test("dropping outside the list or onto itself changes nothing", async ({ page }) => {
+    await handle(page, "Pricing").dragTo(preview(page));
+    await dragSection(page, "Pricing", "Pricing", "after");
+
+    await expectOrder(page, ORIGINAL);
+    await expect(page.getByText("No changes")).toBeVisible();
+  });
+
+  test("reset restores the original order", async ({ page }) => {
+    await dragSection(page, "Call to action", "Hero", "before");
+    await expectOrder(page, ["cta", "hero", "features", "testimonials", "pricing", "faq", "footer"]);
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page.getByRole("button", { name: "Reset changes" }).click();
+
+    await expectOrder(page, ORIGINAL);
+    await expect(page.getByText("No changes")).toBeVisible();
+  });
+
+  test("the handle reorders with the keyboard and keeps focus", async ({ page }) => {
+    const heroHandle = handle(page, "Hero");
+    await heroHandle.focus();
+
+    await page.keyboard.press("ArrowDown");
+    await expectOrder(page, ["features", "hero", "testimonials", "pricing", "faq", "cta", "footer"]);
+    await expect(announcement(page)).toHaveText("Hero moved to position 2 of 7.");
+    await expect(heroHandle).toBeFocused();
+
+    await page.keyboard.press("End");
+    await expectOrder(page, ["features", "testimonials", "pricing", "faq", "cta", "footer", "hero"]);
+    await expect(heroHandle).toBeFocused();
+
+    await page.keyboard.press("ArrowDown"); // already last: no change
+    await page.keyboard.press("Home");
+    await expectOrder(page, ORIGINAL);
+    await expect(page.getByText("No changes")).toBeVisible();
+  });
+
+  test("Move up and Move down reorder the selected section", async ({ page }) => {
+    await outline(page).getByRole("button", { name: /^Pricing/ }).click();
+    // Chrome computes "Move up : Pricing section" (the visually hidden span
+    // adds whitespace), so allow optional space before the colon.
+    const up = inspector(page).getByRole("button", { name: /^Move up\s*: Pricing section$/ });
+    const down = inspector(page).getByRole("button", { name: /^Move down\s*: Pricing section$/ });
+
+    await up.click();
+    await expectOrder(page, ["hero", "features", "pricing", "testimonials", "faq", "cta", "footer"]);
+    await expect(inspector(page).getByText("Position 3 of 7")).toBeVisible();
+    await expect(announcement(page)).toHaveText("Pricing moved to position 3 of 7.");
+
+    await up.click();
+    await up.click();
+    await expect(inspector(page).getByText("Position 1 of 7")).toBeVisible();
+    await expect(up).toBeDisabled();
+    // Focus moves to the other button instead of being lost on the disabled one.
+    await expect(down).toBeFocused();
+
+    await down.click();
+    await down.click();
+    await down.click();
+    await expectOrder(page, ORIGINAL);
+    await expect(inspector(page).getByRole("heading", { name: "Pricing" })).toBeVisible();
+    await expect(page.getByText("No changes")).toBeVisible();
   });
 });

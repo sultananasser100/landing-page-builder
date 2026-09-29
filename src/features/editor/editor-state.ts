@@ -4,6 +4,8 @@ import {
   type Section,
 } from "@/features/sections/page-content";
 
+import { moveItem } from "./reorder";
+
 // Pure editor state. Everything is in memory: nothing here reads from or
 // writes to the database. New sections/items are created by the caller (they
 // need random ids), so the reducer stays pure.
@@ -23,6 +25,8 @@ export type EditorAction =
   | { type: "updateSection"; section: Section }
   | { type: "addSection"; section: Section }
   | { type: "removeSection"; id: string }
+  /** Moves a section to its final position `toIndex`; selection is unchanged. */
+  | { type: "moveSection"; id: string; toIndex: number }
   | { type: "reset" };
 
 function defaultSelection(content: PageContent): EditorSelection {
@@ -94,6 +98,21 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         selection = neighbour ? { kind: "section", id: neighbour.id } : { kind: "page" };
       }
       return { ...state, content: { ...state.content, sections: remaining }, selection };
+    }
+
+    case "moveSection": {
+      const { sections } = state.content;
+      const from = sections.findIndex((s) => s.id === action.id);
+      const { toIndex } = action;
+      if (from === -1 || toIndex === from || toIndex < 0 || toIndex >= sections.length) {
+        return state;
+      }
+      // Section objects are reused as-is; only their order changes. Selection
+      // is by id, so the selected section stays selected wherever it moves.
+      return {
+        ...state,
+        content: { ...state.content, sections: moveItem(sections, from, toIndex) },
+      };
     }
 
     case "reset": {

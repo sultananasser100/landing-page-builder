@@ -9,10 +9,10 @@ import { samplePageContent } from "@/features/sections/sample-page";
 import { EditorCanvas, PREVIEW_ERROR_PLACEHOLDER } from "./editor-canvas";
 import { EditorHeader, validationSummary } from "./editor-header";
 import { EditorViewToggle } from "./editor-view-toggle";
-import { InspectorPanel } from "./inspector-panel";
+import { InspectorPanel, SectionMoveControls } from "./inspector-panel";
 import { InvalidContent } from "./invalid-content";
 import { PageEditor } from "./page-editor";
-import { SectionOutline } from "./section-outline";
+import { OutlineSectionRow, REORDER_INSTRUCTIONS_ID, SectionOutline } from "./section-outline";
 import { sectionLabel, sectionSummary } from "./section-summary";
 
 const noop = () => {};
@@ -82,6 +82,7 @@ describe("SectionOutline", () => {
         countsFor={(index) => (index === 0 ? { errors: 2, publish: 0 } : none)}
         onSelect={noop}
         onAdd={noop}
+        onMove={noop}
       />,
     );
   }
@@ -123,6 +124,90 @@ describe("SectionOutline", () => {
 
   it("shows an empty state without sections", () => {
     expect(render({ kind: "page" }, [])).toContain("No sections yet.");
+  });
+
+  it("gives every section a draggable reorder handle with its own name and instructions", () => {
+    const html = render({ kind: "page" });
+    const handles = html.match(/<button[^>]*data-reorder-handle="[^"]*"[^>]*>/g) ?? [];
+    expect(handles).toHaveLength(sections.length);
+    for (const handle of handles) {
+      expect(handle).toContain('draggable="true"');
+      expect(handle).toContain(`aria-describedby="${REORDER_INSTRUCTIONS_ID}"`);
+    }
+    for (const section of sections) {
+      expect(html).toContain(`aria-label="Reorder ${sectionLabel(section)} section"`);
+    }
+    expect(html).toContain(`id="${REORDER_INSTRUCTIONS_ID}"`);
+    expect(html).toContain("Drag to reorder, or use the arrow keys, Home and End.");
+  });
+
+  it("does not make page settings draggable", () => {
+    const html = render({ kind: "page" });
+    const pageSettingsItem = html.match(/<li>(?:(?!<\/li>).)*Page settings(?:(?!<\/li>).)*<\/li>/)?.[0];
+    expect(pageSettingsItem).toBeDefined();
+    expect(pageSettingsItem).not.toContain("draggable");
+  });
+});
+
+describe("OutlineSectionRow drag visuals", () => {
+  const hero = sections[0]!;
+  function row(props: Partial<Parameters<typeof OutlineSectionRow>[0]> = {}) {
+    return renderToStaticMarkup(
+      <ul>
+        <OutlineSectionRow section={hero} selected={false} counts={none} onSelect={noop} {...props} />
+      </ul>,
+    );
+  }
+
+  it("shows no drag feedback at rest", () => {
+    const html = row();
+    expect(html).not.toContain("opacity-50");
+    expect(html).not.toContain("data-drop-indicator");
+  });
+
+  it("dims the row being dragged", () => {
+    expect(row({ isDragging: true })).toContain("opacity-50");
+  });
+
+  it.each(["before", "after"] as const)("shows a hidden-from-AT drop line %s the row", (placement) => {
+    const html = row({ dropIndicator: placement });
+    expect(html).toMatch(
+      new RegExp(`<span aria-hidden="true" data-drop-indicator="${placement}" class="[^"]*bg-primary`),
+    );
+    expect(html).toContain(placement === "before" ? "-top-0.5" : "-bottom-0.5");
+  });
+
+  it("keeps the select button separate from the drag handle", () => {
+    const html = row({ selected: true });
+    expect(html).toMatch(/<button[^>]*draggable="true"[^>]*aria-label="Reorder Hero section"/);
+    expect(html).toMatch(/<button type="button" aria-current="true"[^>]*>(?:(?!draggable).)*Hero/);
+  });
+});
+
+describe("SectionMoveControls", () => {
+  function controls(index: number, count = 7) {
+    return renderToStaticMarkup(
+      <SectionMoveControls label="Pricing" index={index} count={count} onMove={noop} />,
+    );
+  }
+
+  it("shows the position and both buttons with the section in their names", () => {
+    const html = controls(3);
+    expect(html).toContain("Position 4 of 7");
+    expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>Move up<span class="sr-only">: Pricing section<\/span><\/button>/);
+    expect(html).toMatch(/<button(?![^>]*disabled="")[^>]*>Move down<span class="sr-only">: Pricing section<\/span><\/button>/);
+  });
+
+  it("disables Move up for the first section and Move down for the last", () => {
+    expect(controls(0)).toMatch(/<button[^>]*disabled=""[^>]*>Move up/);
+    expect(controls(0)).not.toMatch(/<button[^>]*disabled=""[^>]*>Move down/);
+    expect(controls(6)).toMatch(/<button[^>]*disabled=""[^>]*>Move down/);
+    expect(controls(6)).not.toMatch(/<button[^>]*disabled=""[^>]*>Move up/);
+  });
+
+  it("disables both for a single section", () => {
+    const html = controls(0, 1);
+    expect(html.match(/disabled=""/g)).toHaveLength(2);
   });
 });
 
@@ -204,6 +289,7 @@ describe("InspectorPanel", () => {
         onUpdateMeta={noop}
         onUpdateSection={noop}
         onRemoveSection={noop}
+        onMoveSection={noop}
       />,
     );
   }
@@ -260,6 +346,17 @@ describe("PageEditor", () => {
     draft.meta.title = "";
     const html = renderToStaticMarkup(<PageEditor page={page} initialContent={draft} />);
     expect(html).toContain("1 needed to publish");
+  });
+
+  it("wires reordering: handles, move controls for the selected section, and a live region", () => {
+    const html = renderToStaticMarkup(<PageEditor page={page} initialContent={samplePageContent} />);
+    expect(html.match(/data-reorder-handle=/g)).toHaveLength(sections.length);
+    // Hero (first) is selected by default.
+    expect(html).toContain("Position 1 of 7");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Move up<span class="sr-only">: Hero section/);
+    expect(html).toMatch(
+      /<p role="status" aria-live="polite" class="sr-only" data-testid="reorder-announcement"><\/p>/,
+    );
   });
 
   it("does not preview a section containing an unsafe link", () => {

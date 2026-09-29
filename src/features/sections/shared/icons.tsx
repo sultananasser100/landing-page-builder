@@ -68,6 +68,14 @@ const ICONS = {
   ],
   check: [["path", { d: "M20 6 9 17l-5-5" }]],
   "chevron-down": [["path", { d: "m6 9 6 6 6-6" }]],
+  "grip-vertical": [
+    ["circle", { cx: "9", cy: "12", r: "1" }],
+    ["circle", { cx: "9", cy: "5", r: "1" }],
+    ["circle", { cx: "9", cy: "19", r: "1" }],
+    ["circle", { cx: "15", cy: "12", r: "1" }],
+    ["circle", { cx: "15", cy: "5", r: "1" }],
+    ["circle", { cx: "15", cy: "19", r: "1" }],
+  ],
 } as const satisfies Record<string, IconNode>;
 
 export type IconName = keyof typeof ICONS;

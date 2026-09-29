@@ -9,6 +9,8 @@ import {
 } from "@/features/sections/page-content";
 import { samplePageContent } from "@/features/sections/sample-page";
 
+import { validateContent } from "./validation";
+
 import {
   createEditorState,
   editorReducer,
@@ -191,6 +193,100 @@ describe("removeSection", () => {
   it("ignores unknown ids", () => {
     const state = initialState();
     expect(editorReducer(state, { type: "removeSection", id: "missing" })).toBe(state);
+  });
+});
+
+describe("moveSection", () => {
+  const ids = (state: EditorState) => state.content.sections.map((s) => s.id);
+  const move = (state: EditorState, id: string, toIndex: number) =>
+    editorReducer(state, { type: "moveSection", id, toIndex });
+
+  // Sample order: hero, features, testimonials, pricing, faq, cta, footer.
+
+  it("moves a section up", () => {
+    const state = move(initialState(), "pricing", 1);
+    expect(ids(state)).toEqual(["hero", "pricing", "features", "testimonials", "faq", "cta", "footer"]);
+  });
+
+  it("moves a section down", () => {
+    const state = move(initialState(), "features", 4);
+    expect(ids(state)).toEqual(["hero", "testimonials", "pricing", "faq", "features", "cta", "footer"]);
+  });
+
+  it("moves a section to the first and to the last position", () => {
+    expect(ids(move(initialState(), "faq", 0))[0]).toBe("faq");
+    expect(ids(move(initialState(), "hero", 6)).at(-1)).toBe("hero");
+  });
+
+  it("keeps every section object and the meta unchanged", () => {
+    const state = move(initialState(), "cta", 0);
+    const byId = new Map(content.sections.map((s) => [s.id, s]));
+    for (const section of state.content.sections) {
+      expect(section).toBe(byId.get(section.id)); // same object, only reordered
+    }
+    expect(state.content.meta).toBe(content.meta);
+    expect(state.content.sections).toHaveLength(content.sections.length);
+  });
+
+  it("keeps the moved section selected", () => {
+    let state = editorReducer(initialState(), {
+      type: "select",
+      selection: { kind: "section", id: "pricing" },
+    });
+    state = move(state, "pricing", 0);
+    expect(state.selection).toEqual({ kind: "section", id: "pricing" });
+    expect(getSelectedSection(state)?.type).toBe("pricing");
+  });
+
+  it("keeps another selected section selected when a different one moves", () => {
+    let state = editorReducer(initialState(), {
+      type: "select",
+      selection: { kind: "section", id: "faq" },
+    });
+    state = move(state, "hero", 6); // faq shifts from index 4 to 3
+    expect(state.selection).toEqual({ kind: "section", id: "faq" });
+    expect(getSelectedSection(state)?.id).toBe("faq");
+  });
+
+  it("keeps page settings selected", () => {
+    let state = editorReducer(initialState(), { type: "select", selection: { kind: "page" } });
+    state = move(state, "hero", 3);
+    expect(state.selection).toEqual({ kind: "page" });
+  });
+
+  it.each([
+    ["an unknown id", "missing", 0],
+    ["the current position", "pricing", 3],
+    ["a negative position", "pricing", -1],
+    ["a position past the end", "pricing", 7],
+  ])("ignores %s", (_label, id, toIndex) => {
+    const state = initialState();
+    expect(move(state, id, toIndex)).toBe(state);
+  });
+
+  it("marks the page as changed, and moving back clears it", () => {
+    let state = move(initialState(), "pricing", 0);
+    expect(hasUnsavedChanges(state)).toBe(true);
+    state = move(state, "pricing", 3);
+    expect(ids(state)).toEqual(ids(initialState()));
+    expect(hasUnsavedChanges(state)).toBe(false);
+  });
+
+  it("is undone by reset", () => {
+    let state = move(initialState(), "footer", 0);
+    state = editorReducer(state, { type: "reset" });
+    expect(state.content).toBe(content);
+  });
+
+  it("moves validation issues with the section", () => {
+    const withError = structuredClone(samplePageContent);
+    const heroSection = withError.sections[0]!;
+    if (heroSection.type !== "hero") throw new Error("expected hero");
+    heroSection.data.primaryButton.href = "javascript:x";
+
+    const state = move(createEditorState(withError), "hero", 2);
+    const result = validateContent(state.content);
+    expect(result.errors.map((issue) => issue.path.slice(0, 2))).toEqual([["sections", 2]]);
   });
 });
 
