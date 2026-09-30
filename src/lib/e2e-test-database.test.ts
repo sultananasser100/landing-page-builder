@@ -1,6 +1,11 @@
 import { describe, expect, it } from "@jest/globals";
 
-import { assertTestDatabase, databaseName } from "../../e2e/test-database";
+import {
+  assertTestDatabase,
+  databaseName,
+  E2E_CREATED_SLUG_PREFIX,
+  E2E_PAGES,
+} from "../../e2e/test-database";
 
 describe("databaseName", () => {
   it.each([
@@ -46,5 +51,17 @@ describe("assertTestDatabase", () => {
       expect((error as Error).message).not.toContain("hunter2-secret");
       expect((error as Error).message).not.toContain("admin");
     }
+  });
+});
+
+describe("E2E_CREATED_SLUG_PREFIX", () => {
+  it("never matches a fixture page, so cleanup cannot delete fixtures", () => {
+    for (const { slug } of Object.values(E2E_PAGES)) {
+      expect(slug.startsWith(E2E_CREATED_SLUG_PREFIX)).toBe(false);
+    }
+  });
+
+  it("is a valid slug start, so created pages can use it", () => {
+    expect(E2E_CREATED_SLUG_PREFIX).toMatch(/^[a-z0-9-]+$/);
   });
 });

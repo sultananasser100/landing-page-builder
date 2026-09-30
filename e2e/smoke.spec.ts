@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { E2E_ADMIN } from "./auth-fixtures";
+import { signIn } from "./helpers";
 
 test("the home page sends signed-out visitors to the login page", async ({ page }) => {
   await page.goto("/");
@@ -10,11 +10,7 @@ test("the home page sends signed-out visitors to the login page", async ({ page 
 });
 
 test("the home page sends signed-in visitors to the dashboard", async ({ page }) => {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill(E2E_ADMIN.email);
-  await page.getByLabel("Password").fill(E2E_ADMIN.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/dashboard");
+  await signIn(page);
 
   await page.goto("/");
 

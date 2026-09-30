@@ -6,7 +6,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { Prisma, PrismaClient } from "../src/generated/prisma/client";
 import { publishPageContentSchema } from "../src/features/sections/page-content";
 import { samplePageContent } from "../src/features/sections/sample-page";
-import { assertTestDatabase, E2E_PAGES } from "./test-database";
+import { assertTestDatabase, E2E_CREATED_SLUG_PREFIX, E2E_PAGES } from "./test-database";
 
 async function main() {
   const connectionString = process.env.DATABASE_URL;
@@ -15,6 +15,10 @@ async function main() {
   const content = publishPageContentSchema.parse(samplePageContent);
   const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: connectionString! }) });
   try {
+    // Pages created by the new-page spec in earlier runs. Only the test-only
+    // prefix is matched, so the fixture pages below are never deleted.
+    await db.page.deleteMany({ where: { slug: { startsWith: E2E_CREATED_SLUG_PREFIX } } });
+
     // The sample page: published, draft equal to published.
     await db.page.upsert({
       where: { slug: E2E_PAGES.sample.slug },

@@ -6,6 +6,8 @@ import {
   CONFLICT_MESSAGE,
   failureMessage,
   feedbackFor,
+  requestFailureMessage,
+  SESSION_EXPIRED_MESSAGE,
   successMessage,
 } from "./action-results";
 
@@ -56,6 +58,30 @@ describe("failureMessage", () => {
   it.each(["bad_request", "error"] as const)("hides the details of %s failures", (reason) => {
     expect(failureMessage("publish", { ok: false, reason })).toBe(
       "Couldn't publish because something went wrong. Please try again.",
+    );
+  });
+});
+
+describe("requestFailureMessage", () => {
+  it("says the session has expired when it has, for save and publish alike", () => {
+    expect(SESSION_EXPIRED_MESSAGE).toBe("Your session has expired. Please sign in again.");
+    for (const kind of ["save", "publish"] as const) {
+      expect(requestFailureMessage(kind, true)).toBe(SESSION_EXPIRED_MESSAGE);
+    }
+  });
+
+  it("keeps the generic message for any other failure", () => {
+    expect(requestFailureMessage("save", false)).toBe(
+      "Couldn't save because something went wrong. Please try again.",
+    );
+    expect(requestFailureMessage("publish", false)).toBe(
+      "Couldn't publish because something went wrong. Please try again.",
+    );
+  });
+
+  it("matches the message shown for the server's own generic failures", () => {
+    expect(requestFailureMessage("save", false)).toBe(
+      failureMessage("save", { ok: false, reason: "error" }),
     );
   });
 });

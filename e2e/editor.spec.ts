@@ -1,32 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { E2E_ADMIN } from "./auth-fixtures";
+import { signIn } from "./helpers";
+import { E2E_PAGES } from "./test-database";
 
-// Most editor specs need the seeded sample page ("Sample SaaS page") in the
-// test database. They skip themselves when it is absent; nothing here seeds or
-// modifies the database. These specs only edit in memory and never click Save.
-const SAMPLE_PAGE_NAME = "Sample SaaS page";
-const MISSING_SAMPLE =
-  "The test database has no 'Sample SaaS page'. Seed it (npm run db:seed with the test DATABASE_URL) to run the editor specs.";
+// Most editor specs use the "Sample SaaS page", which global setup
+// (e2e/reset-fixtures.ts) always seeds into the test database. These specs
+// only edit in memory and never click Save.
+const SAMPLE_PAGE_NAME = E2E_PAGES.sample.name;
 
-async function signIn(page: Page) {
-  await page.goto("/login");
-  await page.getByLabel("Email").fill(E2E_ADMIN.email);
-  await page.getByLabel("Password").fill(E2E_ADMIN.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/dashboard");
-}
-
-/** Opens the sample page's editor from the dashboard, or skips the test. */
+/** Opens the sample page's editor from the dashboard. */
 async function openSampleEditor(page: Page) {
   await signIn(page);
-  // Wait until the dashboard has rendered (its loading skeleton has no <h1>),
-  // so the count below never sees the skeleton and skips by mistake.
   await expect(page.getByRole("heading", { level: 1, name: "Pages" })).toBeVisible();
-  const editLink = page.getByRole("link", { name: `Edit ${SAMPLE_PAGE_NAME}` });
-  test.skip((await editLink.count()) === 0, MISSING_SAMPLE);
-
-  await editLink.click();
+  await page.getByRole("link", { name: `Edit ${SAMPLE_PAGE_NAME}` }).click();
   // `next dev` compiles the editor route on first request, which can exceed
   // the default 5s when several workers open it at once on a fresh server.
   await expect(page).toHaveURL(/\/dashboard\/pages\/[^/]+$/, { timeout: 15_000 });
@@ -167,6 +153,58 @@ test.describe("with the sample page", () => {
     const beforeUnload = await dialog;
     expect(beforeUnload.type()).toBe("beforeunload");
     await beforeUnload.dismiss();
+  });
+
+  // Saving or publishing without a valid session is rejected by the proxy
+  // before anything reaches the database, so these are safe on the sample page.
+  // Clearing the browser's cookies is how the session "expires" here.
+  test.describe("when the session has expired", () => {
+    const feedback = (page: Page) => page.getByTestId("action-feedback");
+    const SESSION_MESSAGE = "Your session has expired. Please sign in again.";
+
+    test("save says so, stays on the editor and keeps the unsaved edit", async ({ page }) => {
+      const editorUrl = page.url();
+      await page.getByRole("button", { name: /^Page settings/ }).click();
+      const title = inspector(page).getByLabel("SEO title");
+      await title.fill("Edit made before the session expired");
+
+      await page.context().clearCookies();
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+
+      await expect(feedback(page)).toHaveText(SESSION_MESSAGE);
+      await expect(page).toHaveURL(editorUrl);
+      await expect(title).toHaveValue("Edit made before the session expired");
+      await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Save", exact: true })).toBeEnabled();
+    });
+
+    test("publish says so and stays on the editor", async ({ page }) => {
+      const editorUrl = page.url();
+      const publish = page.getByRole("button", { name: "Publish", exact: true });
+      await expect(publish).toBeEnabled();
+
+      await page.context().clearCookies();
+      await publish.click();
+
+      await expect(feedback(page)).toHaveText(SESSION_MESSAGE);
+      await expect(page).toHaveURL(editorUrl);
+      await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
+    });
+
+    test("a failed request while still signed in keeps the generic message", async ({ page }) => {
+      // Break only the Server Action request (a POST to the editor page).
+      await page.route("**/dashboard/pages/**", (route) =>
+        route.request().method() === "POST" ? route.abort() : route.continue(),
+      );
+      await page.getByRole("button", { name: /^Page settings/ }).click();
+      await inspector(page).getByLabel("SEO title").fill("Edit that cannot be saved");
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+
+      await expect(feedback(page)).toHaveText(
+        "Couldn't save because something went wrong. Please try again.",
+      );
+      await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
+    });
   });
 
   test("desktop editor fits the viewport and its columns scroll independently", async ({

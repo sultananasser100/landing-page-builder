@@ -7,6 +7,15 @@ export type ActionKind = "save" | "publish";
 export const CONFLICT_MESSAGE =
   "This page was changed elsewhere since you opened it. Reload to get the latest version (unsaved edits here will be lost).";
 
+export const SESSION_EXPIRED_MESSAGE = "Your session has expired. Please sign in again.";
+
+/** Feedback when the request itself failed (no result came back from the server). */
+export function requestFailureMessage(kind: ActionKind, sessionExpired: boolean): string {
+  return sessionExpired
+    ? SESSION_EXPIRED_MESSAGE
+    : `Couldn't ${kind} because something went wrong. Please try again.`;
+}
+
 /** Plain-language feedback for a failed save/publish; never includes content. */
 export function failureMessage(
   kind: ActionKind,

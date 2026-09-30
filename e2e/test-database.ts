@@ -40,3 +40,10 @@ export const E2E_PAGES = {
   /** A page the persistence spec edits, saves and publishes. Reset before every run. */
   persistence: { slug: "e2e-persistence", name: "E2E persistence page" },
 } as const;
+
+/**
+ * Every page the new-page spec creates has a slug starting with this prefix.
+ * Global setup deletes pages with this prefix before each run, so the test
+ * database does not accumulate them. No fixture slug may start with it.
+ */
+export const E2E_CREATED_SLUG_PREFIX = "e2e-created-";
