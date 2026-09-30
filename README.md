@@ -7,7 +7,7 @@ Built with Next.js, React, Prisma (PostgreSQL), Tailwind CSS, Jest and Playwrigh
 
 ## Prerequisites
 
-- Node.js and npm
+- Node.js 20.9 or newer (the Next.js requirement) and npm
 - Docker with Docker Compose, for the PostgreSQL database defined in
   [docker-compose.yml](docker-compose.yml) (Postgres 17, exposed on host port
   `5433`)
@@ -67,11 +67,15 @@ not need the admin or session variables.
 ```bash
 npm run db:up          # start Postgres (docker compose up -d --wait)
 npm run db:generate    # generate the Prisma client (src/generated is git-ignored)
-npm run db:migrate     # apply migrations to the database in .env
-npm run db:seed        # optional: add a published sample page at /p/sample
+npm run db:migrate     # development only: apply migrations to the database in .env
+npm run db:seed        # development/test only: add a published sample page at /p/sample
 ```
 
 `npm run db:down` stops the database container.
+
+`db:seed` is for development and test databases only. It creates or
+**overwrites** the page with slug `sample` (name, draft and published content)
+and publishes it. Do not run it against a production database.
 
 **Test database caveat.** [docker/init-test-db.sql](docker/init-test-db.sql)
 creates the `landing_builder_test` database, but Postgres runs it only when the
@@ -137,14 +141,51 @@ What this does:
   already running for this project (for example `npm run dev`), stop it before
   running the E2E tests.
 
-## Build
+## Production
+
+The app is built with `next build` and served with `next start`; there is no
+other build configuration.
+
+**Environment variables.** These are the only variables the app reads:
+
+| Variable | Needed at |
+| --- | --- |
+| `DATABASE_URL` | Build and runtime (also used by the migration command) |
+| `ADMIN_EMAIL` | Runtime |
+| `ADMIN_PASSWORD_HASH` | Runtime |
+| `SESSION_SECRET` | Runtime |
+
+The build only needs `DATABASE_URL` to be set; the database does not have to be
+reachable while building. The three auth variables are validated when first used,
+not at build time.
+
+Provide them as process environment variables or in a `.env` file. Where you set
+`ADMIN_PASSWORD_HASH` matters: `npm run auth:hash-password` prints the value with
+each `$` escaped as `\$`, which is only for `.env` files (Next.js expands `$`
+there). As a real environment variable, use the plain bcrypt hash without the
+backslashes.
+
+**Deploy order:**
 
 ```bash
+npm ci                     # includes dev dependencies: the build and migrations use them
+npm run db:generate        # src/generated is git-ignored
+npm run db:migrate:deploy  # apply pending migrations
 npm run build
 npm start
 ```
 
-The build reads `DATABASE_URL`, so it must be set (for example in `.env`).
+Notes:
+
+- Apply migrations before starting the new build.
+- Use `db:migrate:deploy` in production, never `db:migrate` (a development
+  command) or `db:seed`.
+- `prisma`, `dotenv`, `tsx`, `typescript` and the Tailwind packages are dev
+  dependencies that migrations and the build rely on, so do not install with
+  `--omit=dev` before building or migrating.
+- `npm start` runs Next.js in production mode, which marks the session cookie
+  `Secure`. Serve the app over HTTPS.
+- A new database is empty. Sign in and use New page to create the first page.
 
 ## npm scripts
 
@@ -159,9 +200,10 @@ The build reads `DATABASE_URL`, so it must be set (for example in `.env`).
 | `npm run test:e2e` | Playwright end-to-end tests (see above) |
 | `npm run db:up` | Start Postgres with Docker Compose |
 | `npm run db:down` | Stop the Docker Compose services |
-| `npm run db:migrate` | `prisma migrate dev` against the database in `.env` |
+| `npm run db:migrate` | Development only: `prisma migrate dev` against the database in `.env` |
+| `npm run db:migrate:deploy` | `prisma migrate deploy` against `DATABASE_URL`; the production migration command |
 | `npm run db:migrate:test` | `prisma migrate deploy` against the database in `.env.test` |
 | `npm run db:generate` | Generate the Prisma client |
-| `npm run db:seed` | Seed the published sample page |
+| `npm run db:seed` | Development/test only: seed the published sample page |
 | `npm run db:studio` | Open Prisma Studio |
 | `npm run auth:hash-password` | Generate the `ADMIN_PASSWORD_HASH` line for `.env` |
