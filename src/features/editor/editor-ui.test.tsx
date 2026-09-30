@@ -1,13 +1,18 @@
 import { describe, expect, it } from "@jest/globals";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type { EditorPage } from "@/features/pages/admin-queries";
+import type { EditorPage, PageStatus } from "@/features/pages/admin-queries";
 import { sectionDefinitions } from "@/features/sections/definitions";
 import { PAGE_LIMITS, SECTION_TYPES, type Section } from "@/features/sections/page-content";
 import { samplePageContent } from "@/features/sections/sample-page";
 
 import { EditorCanvas, PREVIEW_ERROR_PLACEHOLDER } from "./editor-canvas";
-import { EditorHeader, validationSummary } from "./editor-header";
+import {
+  actionAvailability,
+  EditorHeader,
+  validationSummary,
+  type ActionFeedback,
+} from "./editor-header";
 import { EditorViewToggle } from "./editor-view-toggle";
 import { InspectorPanel, SectionMoveControls } from "./inspector-panel";
 import { InvalidContent } from "./invalid-content";
@@ -18,7 +23,13 @@ import { sectionLabel, sectionSummary } from "./section-summary";
 const noop = () => {};
 const noIssues = () => undefined;
 const none = { errors: 0, publish: 0 };
-const page: EditorPage = { id: "p1", name: "Sample SaaS page", slug: "sample", status: "published" };
+const page: EditorPage = {
+  id: "p1",
+  name: "Sample SaaS page",
+  slug: "sample",
+  status: "published",
+  version: "2026-09-29T10:00:00.000Z",
+};
 const sections = samplePageContent.sections;
 
 describe("section summary", () => {
@@ -34,11 +45,31 @@ describe("section summary", () => {
 });
 
 describe("EditorHeader", () => {
-  function render(dirty: boolean, counts = none) {
+  function render(
+    dirty: boolean,
+    counts = none,
+    options: {
+      status?: PageStatus;
+      pending?: boolean;
+      feedback?: ActionFeedback;
+    } = {},
+  ) {
     return renderToStaticMarkup(
-      <EditorHeader page={page} counts={counts} dirty={dirty} onReset={noop} />,
+      <EditorHeader
+        page={page}
+        status={options.status ?? "published"}
+        counts={counts}
+        dirty={dirty}
+        pending={options.pending ?? false}
+        feedback={options.feedback ?? null}
+        onSave={noop}
+        onPublish={noop}
+        onReset={noop}
+      />,
     );
   }
+  const button = (html: string, name: string) =>
+    html.match(new RegExp(`<button[^>]*>${name}</button>`))?.[0] ?? "";
 
   it("shows the page, its status and URL, and a back link to the dashboard", () => {
     const html = render(false);
@@ -48,16 +79,99 @@ describe("EditorHeader", () => {
     expect(html).toMatch(/<a[^>]*href="\/dashboard"[^>]*>.*Pages<\/a>/);
   });
 
-  it("disables reset and says there are no changes when clean", () => {
-    const html = render(false);
-    expect(html).toContain("No changes");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Reset changes<\/button>/);
+  it.each([
+    ["draft", ">Draft</span>", false],
+    ["published", ">Published</span>", true],
+    ["unpublished-changes", ">Unpublished changes</span>", true],
+  ] as const)("shows the %s status, with a live link only when published", (status, badge, live) => {
+    const html = render(false, none, { status });
+    expect(html).toContain(badge);
+    if (live) {
+      expect(html).toMatch(
+        /<a href="\/p\/sample" target="_blank" rel="noopener noreferrer"[^>]*>View live/,
+      );
+    } else {
+      expect(html).not.toContain("View live");
+    }
   });
 
-  it("says changes are not saved when dirty", () => {
+  it("says everything is saved when clean, and disables Reset and Save", () => {
+    const html = render(false);
+    expect(html).toContain("All changes saved");
+    expect(button(html, "Reset changes")).toContain('disabled=""');
+    expect(button(html, "Save")).toContain('disabled=""');
+  });
+
+  it("mentions that saved changes are not yet published", () => {
+    expect(render(false, none, { status: "unpublished-changes" })).toContain(
+      "All changes saved · not yet published",
+    );
+  });
+
+  it("enables Save and Reset when dirty, and disables Publish with a reason", () => {
     const html = render(true);
-    expect(html).toContain("Unsaved changes · Saving isn&#x27;t available yet");
-    expect(html).not.toMatch(/disabled=""[^>]*>Reset changes/);
+    expect(html).toContain("Unsaved changes");
+    expect(button(html, "Save")).not.toContain('disabled=""');
+    expect(button(html, "Reset changes")).not.toContain('disabled=""');
+    expect(button(html, "Publish")).toContain('disabled=""');
+    expect(html).toContain('id="publish-hint"');
+    expect(html).toContain("Save your changes before publishing.");
+    expect(button(html, "Publish")).toContain('aria-describedby="publish-hint"');
+  });
+
+  it("enables Publish only when saved and complete", () => {
+    const html = render(false);
+    expect(button(html, "Publish")).not.toContain('disabled=""');
+    expect(html).not.toContain("publish-hint");
+  });
+
+  it("blocks Save on errors but allows saving incomplete drafts", () => {
+    expect(button(render(true, { errors: 1, publish: 0 }), "Save")).toContain('disabled=""');
+    expect(button(render(true, { errors: 0, publish: 2 }), "Save")).not.toContain('disabled=""');
+  });
+
+  it("blocks Publish until publish issues are fixed, with the reason", () => {
+    const html = render(false, { errors: 0, publish: 2 });
+    expect(button(html, "Publish")).toContain('disabled=""');
+    expect(html).toContain("Fill in the required content before publishing.");
+  });
+
+  it("disables everything while a save or publish is in progress", () => {
+    const html = render(true, none, { pending: true });
+    for (const name of ["Save", "Publish", "Reset changes"]) {
+      expect(button(html, name)).toContain('disabled=""');
+    }
+  });
+
+  it("announces feedback politely, and shows errors in the error style", () => {
+    const success = render(false, none, {
+      feedback: { tone: "success", message: "Saved at 10:05 AM UTC." },
+    });
+    expect(success).toMatch(/aria-live="polite"[^>]*data-testid="action-feedback"[^>]*>Saved at 10:05 AM UTC\.</);
+
+    const failure = render(true, none, {
+      feedback: { tone: "error", message: "Couldn't save." },
+    });
+    expect(failure).toMatch(
+      /data-testid="action-feedback" class="[^"]*text-destructive[^"]*">Couldn&#x27;t save\./,
+    );
+  });
+
+  it("keeps an empty live region when there is no feedback", () => {
+    expect(render(false)).toMatch(/data-testid="action-feedback" class="sr-only"><\/p>/);
+  });
+
+  describe("actionAvailability", () => {
+    it.each([
+      // dirty, counts, pending → canSave, canPublish
+      [false, none, false, false, true],
+      [true, none, false, true, false],
+      [true, { errors: 1, publish: 0 }, false, false, false],
+      [false, { errors: 0, publish: 1 }, false, false, false],
+      [false, none, true, false, false],
+    ] as const)("dirty=%s counts=%j pending=%s", (dirty, counts, pending, canSave, canPublish) => {
+      expect(actionAvailability({ dirty, counts, pending })).toMatchObject({ canSave, canPublish });
+    });
   });
 
   it("announces the validation summary politely", () => {
@@ -336,7 +450,7 @@ describe("PageEditor", () => {
     expect(html).toContain('<section aria-label="Preview"');
     expect(html).toContain('<aside aria-label="Inspector"');
     expect(html).toMatch(/<h2[^>]*>Hero<\/h2>/);
-    expect(html).toContain("No changes");
+    expect(html).toContain("All changes saved");
     expect(html).toContain("All required content is filled in");
     expect(html).not.toContain('aria-invalid="true"');
   });

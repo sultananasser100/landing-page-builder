@@ -40,7 +40,7 @@ beforeAll(async () => {
   ({ default: EditPagePage, generateMetadata } = await import("./page"));
 });
 
-const page = { id: "p1", name: "Sample SaaS page", slug: "sample", status: "draft" as const };
+const page = { id: "p1", name: "Sample SaaS page", slug: "sample", status: "draft" as const, version: "2026-09-29T10:00:00.000Z" };
 const props = (id: string) =>
   ({ params: Promise.resolve({ id }), searchParams: Promise.resolve({}) }) as PageProps<"/dashboard/pages/[id]">;
 

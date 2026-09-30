@@ -7,19 +7,19 @@ import {
   draftPageContentSchema,
   type PageContent,
 } from "@/features/sections/page-content";
-import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 
 import { describeStoredContentIssue, type ContentIssue } from "./content-issues";
+import { loadPageStatuses, statusOf, type PageStatus } from "./page-status";
 
-export type PageStatus = "published" | "draft";
+export type { PageStatus };
 
 export type DashboardPage = {
   id: string;
   name: string;
   slug: string;
   status: PageStatus;
-  /** Only set for published pages. */
+  /** Only set for pages with a published snapshot. */
   publishedAt: Date | null;
   updatedAt: Date;
 };
@@ -36,13 +36,13 @@ type DashboardPageRow = {
  * A page is published when it has a `publishedContent` snapshot — the same
  * rule the public /p/[slug] route uses. `publishedAt` alone is not trusted.
  */
-export function toDashboardPage(row: DashboardPageRow, isPublished: boolean): DashboardPage {
+export function toDashboardPage(row: DashboardPageRow, status: PageStatus): DashboardPage {
   return {
     id: row.id,
     name: row.name,
     slug: row.slug,
-    status: isPublished ? "published" : "draft",
-    publishedAt: isPublished ? row.publishedAt : null,
+    status,
+    publishedAt: status === "draft" ? null : row.publishedAt,
     updatedAt: row.updatedAt,
   };
 }
@@ -55,20 +55,15 @@ export function toDashboardPage(row: DashboardPageRow, isPublished: boolean): Da
 export async function listDashboardPages(): Promise<DashboardPage[]> {
   await requireAdmin();
 
-  const [rows, publishedRows] = await Promise.all([
+  const [rows, statuses] = await Promise.all([
     db.page.findMany({
       select: { id: true, name: true, slug: true, publishedAt: true, updatedAt: true },
       orderBy: { updatedAt: "desc" },
     }),
-    // Only ids, so published snapshots are not transferred.
-    db.page.findMany({
-      where: { publishedContent: { not: Prisma.AnyNull } },
-      select: { id: true },
-    }),
+    loadPageStatuses(),
   ]);
 
-  const publishedIds = new Set(publishedRows.map((row) => row.id));
-  return rows.map((row) => toDashboardPage(row, publishedIds.has(row.id)));
+  return rows.map((row) => toDashboardPage(row, statusOf(statuses, row.id)));
 }
 
 export type EditorPage = {
@@ -76,6 +71,11 @@ export type EditorPage = {
   name: string;
   slug: string;
   status: PageStatus;
+  /**
+   * The page's `updatedAt` (ISO string) when loaded. Saves and publishes send
+   * it back so a stale editor cannot overwrite newer changes.
+   */
+  version: string;
 };
 
 export type { ContentIssue };
@@ -94,13 +94,13 @@ export const getPageForEditor = cache(
   async (id: string): Promise<EditorPageResult | null> => {
     await requireAdmin();
 
-    const [row, publishedCount] = await Promise.all([
+    const [row, statuses] = await Promise.all([
       db.page.findUnique({
         where: { id },
-        select: { id: true, name: true, slug: true, draftContent: true },
+        select: { id: true, name: true, slug: true, draftContent: true, updatedAt: true },
       }),
       // Status only; the published snapshot itself is not loaded.
-      db.page.count({ where: { id, publishedContent: { not: Prisma.AnyNull } } }),
+      loadPageStatuses(id),
     ]);
     if (!row) return null;
 
@@ -108,7 +108,8 @@ export const getPageForEditor = cache(
       id: row.id,
       name: row.name,
       slug: row.slug,
-      status: publishedCount > 0 ? "published" : "draft",
+      status: statusOf(statuses, row.id),
+      version: row.updatedAt.toISOString(),
     };
 
     const parsed = draftPageContentSchema.safeParse(row.draftContent);

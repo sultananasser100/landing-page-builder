@@ -24,6 +24,15 @@ const draft: DashboardPage = {
   updatedAt: new Date("2026-09-28T09:00:00Z"),
 };
 
+const withChanges: DashboardPage = {
+  id: "p3",
+  name: "Edited after publishing",
+  slug: "edited",
+  status: "unpublished-changes",
+  publishedAt: new Date("2026-09-26T08:00:00Z"),
+  updatedAt: new Date("2026-09-29T11:00:00Z"),
+};
+
 function render(pages: DashboardPage[]) {
   return renderToStaticMarkup(<PagesList pages={pages} />);
 }
@@ -31,11 +40,28 @@ function render(pages: DashboardPage[]) {
 describe("PageStatusBadge", () => {
   it.each([
     ["published", "Published"],
+    ["unpublished-changes", "Unpublished changes"],
     ["draft", "Draft"],
   ] as const)("labels %s pages as %s", (status, label) => {
     expect(renderToStaticMarkup(<PageStatusBadge status={status} />)).toContain(
       `>${label}</span>`,
     );
+  });
+});
+
+describe("PagesList with unpublished changes", () => {
+  it("shows the badge, both dates, and a live link (the published version is live)", () => {
+    const html = render([withChanges]);
+    expect(html).toContain(">Unpublished changes</span>");
+    expect(html).toContain("Sep 29, 2026, 11:00 AM UTC");
+    expect(html).toContain("Sep 26, 2026, 8:00 AM UTC");
+    expect(html).toContain("Published <time");
+    expect(html).toContain('href="/p/edited"');
+    expect(html).toContain("View live");
+  });
+
+  it("counts it as published in the summary", () => {
+    expect(render([published, withChanges, draft])).toContain("3 pages · 2 published");
   });
 });
 

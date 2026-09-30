@@ -8,15 +8,15 @@ import type * as AdminQueries from "./admin-queries";
 
 const mockFindMany = jest.fn<(args: unknown) => Promise<unknown[]>>();
 const mockFindUnique = jest.fn<(args: unknown) => Promise<unknown>>();
-const mockCount = jest.fn<(args: unknown) => Promise<number>>();
 const mockRequireAdmin = jest.fn<() => Promise<unknown>>();
+const DRAFT_FIELD = { $field: "draftContent" };
 
 jest.mock("@/lib/db", () => ({
   db: {
     page: {
       findMany: (args: unknown) => mockFindMany(args),
       findUnique: (args: unknown) => mockFindUnique(args),
-      count: (args: unknown) => mockCount(args),
+      fields: { draftContent: { $field: "draftContent" } },
     },
   },
 }));
@@ -43,17 +43,35 @@ const publishedAt = new Date("2026-09-27T08:00:00Z");
 const rowA = { id: "a", name: "Page A", slug: "page-a", publishedAt, updatedAt: updatedA };
 const rowB = { id: "b", name: "Page B", slug: "page-b", publishedAt: null, updatedAt: updatedB };
 
+/**
+ * Fakes the page table: `published` ids have a published snapshot, `inSync`
+ * ids are those whose snapshot equals the draft. The status queries are told
+ * apart by their `where`.
+ */
+function mockStatusQueries({
+  rows = [] as unknown[],
+  published = [] as string[],
+  inSync = [] as string[],
+} = {}) {
+  mockFindMany.mockImplementation(async (args) => {
+    const where = (args as { where?: { publishedContent?: unknown } }).where;
+    if (!where) return rows;
+    const publishedContent = where.publishedContent as { equals?: unknown } | undefined;
+    const ids = publishedContent?.equals ? inSync : published;
+    return ids.map((id) => ({ id }));
+  });
+}
+
 beforeEach(() => {
   mockFindMany.mockReset();
   mockFindUnique.mockReset();
-  mockCount.mockReset();
   mockRequireAdmin.mockReset();
   mockRequireAdmin.mockResolvedValue({ subject: "admin" });
 });
 
 describe("toDashboardPage", () => {
-  it("marks pages with a published snapshot as published", () => {
-    expect(toDashboardPage(rowA, true)).toEqual({
+  it("shows the published date for published pages", () => {
+    expect(toDashboardPage(rowA, "published")).toEqual({
       id: "a",
       name: "Page A",
       slug: "page-a",
@@ -63,22 +81,20 @@ describe("toDashboardPage", () => {
     });
   });
 
-  it("marks pages without a published snapshot as draft", () => {
-    expect(toDashboardPage(rowB, false)).toMatchObject({ status: "draft", publishedAt: null });
+  it("keeps the published date for pages with unpublished changes", () => {
+    expect(toDashboardPage(rowA, "unpublished-changes")).toMatchObject({
+      status: "unpublished-changes",
+      publishedAt,
+    });
   });
 
-  it("treats publishedAt without a snapshot (unpublished) as draft and hides the date", () => {
-    expect(toDashboardPage(rowA, false)).toMatchObject({ status: "draft", publishedAt: null });
+  it("hides publishedAt for drafts, even if a stale date is stored", () => {
+    expect(toDashboardPage(rowB, "draft")).toMatchObject({ status: "draft", publishedAt: null });
+    expect(toDashboardPage(rowA, "draft")).toMatchObject({ status: "draft", publishedAt: null });
   });
 });
 
 describe("listDashboardPages", () => {
-  function mockQueries(rows: unknown[], publishedIds: string[]) {
-    mockFindMany.mockImplementation(async (args) =>
-      (args as { where?: unknown }).where ? publishedIds.map((id) => ({ id })) : rows,
-    );
-  }
-
   it("requires an admin session before querying", async () => {
     mockRequireAdmin.mockRejectedValue(new RedirectError("/login"));
     await expect(listDashboardPages()).rejects.toMatchObject({ url: "/login" });
@@ -86,16 +102,12 @@ describe("listDashboardPages", () => {
   });
 
   it("selects only list fields, newest update first, without page content", async () => {
-    mockQueries([], []);
+    mockStatusQueries();
     await listDashboardPages();
 
     expect(mockFindMany).toHaveBeenCalledWith({
       select: { id: true, name: true, slug: true, publishedAt: true, updatedAt: true },
       orderBy: { updatedAt: "desc" },
-    });
-    expect(mockFindMany).toHaveBeenCalledWith({
-      where: { publishedContent: { not: Prisma.AnyNull } },
-      select: { id: true },
     });
     for (const [args] of mockFindMany.mock.calls) {
       const select = (args as { select: Record<string, boolean> }).select;
@@ -104,66 +116,100 @@ describe("listDashboardPages", () => {
     }
   });
 
-  it("maps rows in query order with their status", async () => {
-    mockQueries([rowA, rowB], ["a"]);
+  it("asks the database whether each snapshot is published and equals the draft", async () => {
+    mockStatusQueries();
+    await listDashboardPages();
+
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { publishedContent: { not: Prisma.AnyNull } },
+      select: { id: true },
+    });
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { publishedContent: { equals: DRAFT_FIELD } },
+      select: { id: true },
+    });
+  });
+
+  it("maps every page to draft, published, or unpublished changes", async () => {
+    const rowC = { ...rowA, id: "c", name: "Page C", slug: "page-c" };
+    mockStatusQueries({ rows: [rowA, rowB, rowC], published: ["a", "c"], inSync: ["a"] });
+
     expect(await listDashboardPages()).toEqual([
-      toDashboardPage(rowA, true),
-      toDashboardPage(rowB, false),
+      toDashboardPage(rowA, "published"),
+      toDashboardPage(rowB, "draft"),
+      toDashboardPage(rowC, "unpublished-changes"),
     ]);
   });
 
   it("returns an empty list when there are no pages", async () => {
-    mockQueries([], []);
+    mockStatusQueries();
     expect(await listDashboardPages()).toEqual([]);
   });
 });
 
 describe("getPageForEditor", () => {
-  const row = { id: "p1", name: "Sample", slug: "sample" };
+  const version = new Date("2026-09-29T10:00:00.123Z");
+  const row = { id: "p1", name: "Sample", slug: "sample", updatedAt: version };
+  const pageInfo = { id: "p1", name: "Sample", slug: "sample", version: version.toISOString() };
 
   it("requires an admin session before querying", async () => {
     mockRequireAdmin.mockRejectedValue(new RedirectError("/login"));
     await expect(getPageForEditor("p1")).rejects.toMatchObject({ url: "/login" });
     expect(mockFindUnique).not.toHaveBeenCalled();
-    expect(mockCount).not.toHaveBeenCalled();
+    expect(mockFindMany).not.toHaveBeenCalled();
   });
 
   it("loads only the draft content, not the published snapshot", async () => {
     mockFindUnique.mockResolvedValue({ ...row, draftContent: samplePageContent });
-    mockCount.mockResolvedValue(1);
+    mockStatusQueries({ published: ["p1"], inSync: ["p1"] });
     await getPageForEditor("p1");
 
     expect(mockFindUnique).toHaveBeenCalledWith({
       where: { id: "p1" },
-      select: { id: true, name: true, slug: true, draftContent: true },
+      select: { id: true, name: true, slug: true, draftContent: true, updatedAt: true },
     });
-    expect(mockCount).toHaveBeenCalledWith({
+    // Status is computed from ids only, scoped to this page.
+    expect(mockFindMany).toHaveBeenCalledWith({
       where: { id: "p1", publishedContent: { not: Prisma.AnyNull } },
+      select: { id: true },
+    });
+    expect(mockFindMany).toHaveBeenCalledWith({
+      where: { id: "p1", publishedContent: { equals: DRAFT_FIELD } },
+      select: { id: true },
     });
   });
 
   it("returns null when the page does not exist", async () => {
     mockFindUnique.mockResolvedValue(null);
-    mockCount.mockResolvedValue(0);
+    mockStatusQueries();
     expect(await getPageForEditor("missing")).toBeNull();
   });
 
-  it("returns valid draft content with the page status", async () => {
+  it("returns valid draft content with the version and status", async () => {
     mockFindUnique.mockResolvedValue({ ...row, draftContent: samplePageContent });
-    mockCount.mockResolvedValue(0);
+    mockStatusQueries();
 
     expect(await getPageForEditor("p1")).toEqual({
       kind: "ok",
-      page: { ...row, status: "draft" },
+      page: { ...pageInfo, status: "draft" },
       content: samplePageContent,
     });
+  });
+
+  it.each([
+    ["published", { published: ["p1"], inSync: ["p1"] }],
+    ["unpublished-changes", { published: ["p1"], inSync: [] }],
+  ] as const)("reports %s pages", async (status, ids) => {
+    mockFindUnique.mockResolvedValue({ ...row, draftContent: samplePageContent });
+    mockStatusQueries({ published: [...ids.published], inSync: [...ids.inSync] });
+    expect(await getPageForEditor("p1")).toMatchObject({ kind: "ok", page: { status } });
   });
 
   it("accepts draft content with empty editable strings", async () => {
     const draft = structuredClone(samplePageContent);
     draft.meta.title = "";
     mockFindUnique.mockResolvedValue({ ...row, draftContent: draft });
-    mockCount.mockResolvedValue(1);
+    mockStatusQueries({ published: ["p1"], inSync: ["p1"] });
 
     expect(await getPageForEditor("p1")).toMatchObject({
       kind: "ok",
@@ -180,10 +226,10 @@ describe("getPageForEditor", () => {
     invalid.schemaVersion = 99;
     invalid.sections[0]!.data.primaryButton.href = "javascript:stored-secret";
     mockFindUnique.mockResolvedValue({ ...row, draftContent: invalid });
-    mockCount.mockResolvedValue(0);
+    mockStatusQueries();
 
     const result = await getPageForEditor("p1");
-    expect(result).toMatchObject({ kind: "invalid", page: { ...row, status: "draft" } });
+    expect(result).toMatchObject({ kind: "invalid", page: { ...pageInfo, status: "draft" } });
     if (result?.kind !== "invalid") throw new Error("expected invalid");
     expect(result.issues.map((issue) => issue.path)).toEqual(
       expect.arrayContaining(["schemaVersion", "sections.0.data.primaryButton.href"]),
@@ -198,7 +244,7 @@ describe("getPageForEditor", () => {
 
   it("reports non-object content at the root", async () => {
     mockFindUnique.mockResolvedValue({ ...row, draftContent: null });
-    mockCount.mockResolvedValue(0);
+    mockStatusQueries();
     const result = await getPageForEditor("p1");
     expect(result).toMatchObject({ kind: "invalid", issues: [{ path: "(root)" }] });
   });

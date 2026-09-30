@@ -290,6 +290,66 @@ describe("moveSection", () => {
   });
 });
 
+describe("markSaved", () => {
+  it("makes the saved content the new baseline, clearing the unsaved flag", () => {
+    let state = editorReducer(initialState(), {
+      type: "updateMeta",
+      field: "title",
+      value: "Saved title",
+    });
+    expect(hasUnsavedChanges(state)).toBe(true);
+
+    state = editorReducer(state, { type: "markSaved", saved: state.content });
+    expect(hasUnsavedChanges(state)).toBe(false);
+    expect(state.initial).toBe(state.content);
+    expect(state.content.meta.title).toBe("Saved title");
+  });
+
+  it("keeps edits made while the save was in flight as unsaved", () => {
+    let state = editorReducer(initialState(), {
+      type: "updateMeta",
+      field: "title",
+      value: "Sent title",
+    });
+    const sent = state.content; // what the save action received
+    state = editorReducer(state, { type: "updateMeta", field: "description", value: "Typed later" });
+
+    state = editorReducer(state, { type: "markSaved", saved: sent });
+    expect(state.initial.meta.title).toBe("Sent title");
+    expect(state.content.meta.description).toBe("Typed later");
+    expect(hasUnsavedChanges(state)).toBe(true);
+  });
+
+  it("does not change the content, the selection or the order", () => {
+    let state = editorReducer(initialState(), { type: "moveSection", id: "faq", toIndex: 0 });
+    state = editorReducer(state, { type: "select", selection: { kind: "section", id: "cta" } });
+    const before = state;
+
+    state = editorReducer(state, { type: "markSaved", saved: state.content });
+    expect(state.content).toBe(before.content);
+    expect(state.selection).toBe(before.selection);
+  });
+
+  it("makes Reset restore the last saved version, not the originally loaded one", () => {
+    let state = editorReducer(initialState(), { type: "removeSection", id: "faq" });
+    state = editorReducer(state, { type: "markSaved", saved: state.content }); // saved without FAQ
+    state = editorReducer(state, { type: "updateMeta", field: "title", value: "Unsaved edit" });
+
+    state = editorReducer(state, { type: "reset" });
+    expect(state.content.sections.map((s) => s.id)).not.toContain("faq");
+    expect(state.content.meta.title).toBe(content.meta.title);
+    expect(hasUnsavedChanges(state)).toBe(false);
+  });
+
+  it("makes reverting to the previously saved state count as a change again", () => {
+    let state = editorReducer(initialState(), { type: "moveSection", id: "hero", toIndex: 3 });
+    state = editorReducer(state, { type: "markSaved", saved: state.content });
+    state = editorReducer(state, { type: "moveSection", id: "hero", toIndex: 0 }); // back to original order
+
+    expect(hasUnsavedChanges(state)).toBe(true); // differs from what was saved
+  });
+});
+
 describe("reset", () => {
   it("restores the loaded content", () => {
     let state = editorReducer(initialState(), { type: "removeSection", id: "faq" });
