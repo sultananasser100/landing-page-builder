@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { E2E_ADMIN } from "./auth-fixtures";
+import { signIn } from "./helpers";
 import { E2E_PAGES } from "./test-database";
 
 // Persistence and publishing, end to end. These specs WRITE to the database:
@@ -16,16 +16,6 @@ const DRAFT_HEADING = "Edited draft headline";
 const PUBLISHED_HEADING = "Published headline v2";
 
 let editorUrl: string;
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  // /login redirects signed-in visitors to the dashboard: already signed in.
-  if (new URL(page.url()).pathname === "/dashboard") return;
-  await page.getByLabel("Email").fill(E2E_ADMIN.email);
-  await page.getByLabel("Password").fill(E2E_ADMIN.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/dashboard");
-}
 
 async function openEditor(page: Page) {
   await signIn(page);

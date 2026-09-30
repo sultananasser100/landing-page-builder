@@ -1,23 +1,15 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { E2E_ADMIN } from "./auth-fixtures";
+import { signIn } from "./helpers";
+import { E2E_CREATED_SLUG_PREFIX } from "./test-database";
 
 // Creating a page from a template, end to end. Runs against the test database
-// (see e2e/global-setup.ts) but does not depend on or reset any fixture page:
-// each test creates its own page with a slug unique to the run, so specs can
-// run repeatedly without collisions or cleanup.
+// (see e2e/global-setup.ts) but does not depend on any fixture page: each test
+// creates its own page with a slug unique to the run. Every slug starts with
+// E2E_CREATED_SLUG_PREFIX, and global setup deletes pages with that prefix
+// before the next run.
 
 const RUN_ID = `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
-
-async function signIn(page: Page) {
-  await page.goto("/login");
-  // /login redirects signed-in visitors to the dashboard: already signed in.
-  if (new URL(page.url()).pathname === "/dashboard") return;
-  await page.getByLabel("Email").fill(E2E_ADMIN.email);
-  await page.getByLabel("Password").fill(E2E_ADMIN.password);
-  await page.getByRole("button", { name: "Sign in" }).click();
-  await expect(page).toHaveURL("/dashboard");
-}
 
 async function openNewPageForm(page: Page) {
   await signIn(page);
@@ -32,7 +24,7 @@ test("creating a page from the SaaS template lands in the editor with its sectio
   await openNewPageForm(page);
 
   const name = `E2E SaaS ${RUN_ID}`;
-  const slug = `e2e-saas-${RUN_ID}`;
+  const slug = `${E2E_CREATED_SLUG_PREFIX}saas-${RUN_ID}`;
   await page.getByLabel("Page name").fill(name);
   // The slug field auto-fills from the name; overwrite it with the exact slug.
   await page.getByLabel("URL slug").fill(slug);
@@ -58,7 +50,7 @@ test("creating a page from the Blank template starts with no sections", async ({
   await openNewPageForm(page);
 
   const name = `E2E Blank ${RUN_ID}`;
-  const slug = `e2e-blank-${RUN_ID}`;
+  const slug = `${E2E_CREATED_SLUG_PREFIX}blank-${RUN_ID}`;
   await page.getByLabel("Page name").fill(name);
   await page.getByLabel("URL slug").fill(slug);
   // Blank is the default selection; no radio click needed.
@@ -88,11 +80,61 @@ test("the slug is prefilled from the name until it is edited by hand", async ({ 
   await expect(slugField).toHaveValue("my-own-slug");
 });
 
+test("an empty name is stopped by the browser's required-field validation", async ({ page }) => {
+  await openNewPageForm(page);
+  const nameField = page.getByLabel("Page name");
+
+  // Only the slug is filled in, so the name is the missing required field.
+  await page.getByLabel("URL slug").fill("name-is-missing");
+  await page.getByRole("button", { name: "Create page" }).click();
+
+  // The form is not submitted: no navigation and no server error is shown.
+  await expect(page).toHaveURL("/dashboard/pages/new");
+  await expect(nameField).toBeFocused();
+  expect(await nameField.evaluate((input: HTMLInputElement) => input.validity.valueMissing)).toBe(
+    true,
+  );
+  await expect(page.locator("#name-error")).toHaveCount(0);
+});
+
+test("a name of only spaces shows the name error and does not create a page", async ({
+  page,
+}) => {
+  await openNewPageForm(page);
+
+  // Spaces satisfy the browser's `required` check, so the server rejects them.
+  await page.getByLabel("Page name").fill("   ");
+  await page.getByLabel("URL slug").fill("spaces-only-name");
+  await page.getByRole("button", { name: "Create page" }).click();
+
+  await expect(page.locator("#name-error")).toHaveText("Enter a page name.");
+  await expect(page.getByLabel("Page name")).toHaveAttribute("aria-invalid", "true");
+  await expect(page).toHaveURL("/dashboard/pages/new");
+});
+
+test("an invalid slug shows the slug error and keeps what was typed", async ({ page }) => {
+  await openNewPageForm(page);
+
+  await page.getByLabel("Page name").fill("E2E invalid slug");
+  await page.getByLabel("URL slug").fill("Bad Slug!");
+  await page.getByRole("button", { name: "Create page" }).click();
+
+  // The slug pattern is enforced on the server and reported on the field.
+  await expect(page.locator("#slug-error")).toHaveText(
+    "Use only lowercase letters, digits and hyphens.",
+  );
+  await expect(page.getByLabel("URL slug")).toHaveAttribute("aria-invalid", "true");
+  await expect(page).toHaveURL("/dashboard/pages/new");
+  await expect(page.getByLabel("Page name")).toHaveValue("E2E invalid slug");
+  await expect(page.getByLabel("URL slug")).toHaveValue("Bad Slug!");
+  await expect(page.locator("#name-error")).toHaveCount(0);
+});
+
 test("a duplicate slug shows a field error and does not navigate away", async ({ page }) => {
   await openNewPageForm(page);
 
   const name = `E2E Dup ${RUN_ID}`;
-  const slug = `e2e-dup-${RUN_ID}`;
+  const slug = `${E2E_CREATED_SLUG_PREFIX}dup-${RUN_ID}`;
   await page.getByLabel("Page name").fill(name);
   await page.getByLabel("URL slug").fill(slug);
   await page.getByRole("button", { name: "Create page" }).click();
@@ -124,7 +166,7 @@ test("a Hero link to #features scrolls to the Features section on the published 
 }) => {
   await openNewPageForm(page);
   const name = `E2E Anchors ${RUN_ID}`;
-  const slug = `e2e-anchors-${RUN_ID}`;
+  const slug = `${E2E_CREATED_SLUG_PREFIX}anchors-${RUN_ID}`;
   await page.getByLabel("Page name").fill(name);
   await page.getByLabel("URL slug").fill(slug);
   await page.getByRole("radio", { name: /^SaaS landing page/ }).check();

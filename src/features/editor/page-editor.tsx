@@ -17,7 +17,7 @@ import type { PageContent, SectionType } from "@/features/sections/page-content"
 import { cn } from "@/lib/utils";
 
 import { EditorCanvas } from "./editor-canvas";
-import { feedbackFor, type ActionKind } from "./action-results";
+import { feedbackFor, requestFailureMessage, type ActionKind } from "./action-results";
 import { EditorHeader, type ActionFeedback } from "./editor-header";
 import {
   createEditorState,
@@ -29,6 +29,7 @@ import { EditorViewToggle, type EditorView } from "./editor-view-toggle";
 import { InspectorPanel } from "./inspector-panel";
 import { SectionOutline } from "./section-outline";
 import { sectionLabel } from "./section-summary";
+import { isSessionExpired } from "./session-check";
 import {
   countIssues,
   issueAt,
@@ -130,10 +131,12 @@ export function PageEditor({
         setStatus(result.status);
         if (kind === "save") dispatch({ type: "markSaved", saved: sent });
       } catch {
-        // A network failure or an unexpected error from the action itself.
+        // The action gave no result: a network failure, an unexpected error, or
+        // a signed-out session (the proxy redirects the request to /login). The
+        // edits stay in the editor either way.
         setFeedback({
           tone: "error",
-          message: `Couldn't ${kind} because something went wrong. Please try again.`,
+          message: requestFailureMessage(kind, await isSessionExpired()),
         });
       }
     });
