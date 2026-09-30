@@ -2,9 +2,13 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "@jest/globals";
 
 import { sectionDefinitions } from "./definitions";
-import { SECTION_TYPES } from "./page-content";
+import { SECTION_TYPES, type PageContent, type Section } from "./page-content";
 import { PageRenderer } from "./page-renderer";
 import { samplePageContent } from "./sample-page";
+
+function pageOf(sections: Section[]): PageContent {
+  return { schemaVersion: 1, meta: { title: "", description: "" }, sections };
+}
 
 describe("PageRenderer", () => {
   it("renders every section of the sample page", () => {
@@ -19,14 +23,14 @@ describe("PageRenderer", () => {
     expect(html).toContain("Give your team a calmer way to plan");
     expect(html).toContain("<footer");
     expect(html).toContain('href="mailto:sales@example.com"');
-    for (const section of samplePageContent.sections) {
-      expect(html).toContain(`id="${section.id}"`);
+    for (const type of SECTION_TYPES) {
+      expect(html).toContain(`id="${type}"`);
     }
   });
 
   it("renders sections in order", () => {
     const html = renderToStaticMarkup(<PageRenderer content={samplePageContent} />);
-    const positions = samplePageContent.sections.map((s) => html.indexOf(`id="${s.id}"`));
+    const positions = samplePageContent.sections.map((s) => html.indexOf(`id="${s.type}"`));
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
 
@@ -40,13 +44,45 @@ describe("PageRenderer", () => {
     expect(html).toContain("&lt;script&gt;");
   });
 
-  it.each(SECTION_TYPES)("renders the %s default", (type) => {
+  it.each(SECTION_TYPES)("renders the %s default with a type-based anchor", (type) => {
     const section = sectionDefinitions[type].createDefault();
+    const html = renderToStaticMarkup(<PageRenderer content={pageOf([section])} />);
+    expect(html).toContain(`id="${type}"`);
+    // The stored UUID is never used as the DOM id.
+    expect(html).not.toContain(`id="${section.id}"`);
+  });
+
+  it("gives UUID-backed sections a target for #anchor links (Hero to Features)", () => {
+    const hero = sectionDefinitions.hero.createDefault();
+    const features = sectionDefinitions.features.createDefault();
+    hero.data.primaryButton.href = "#features";
+
+    const html = renderToStaticMarkup(<PageRenderer content={pageOf([hero, features])} />);
+
+    expect(html).toContain('href="#features"');
+    expect(html).toMatch(/<section id="features"/);
+    expect(html.match(/id="features"/g)).toHaveLength(1);
+  });
+
+  it("uses numbered anchors for repeated section types", () => {
     const html = renderToStaticMarkup(
       <PageRenderer
-        content={{ schemaVersion: 1, meta: { title: "", description: "" }, sections: [section] }}
+        content={pageOf([
+          sectionDefinitions.features.createDefault(),
+          sectionDefinitions.features.createDefault(),
+          sectionDefinitions.features.createDefault(),
+        ])}
       />,
     );
-    expect(html).toContain(`id="${section.id}"`);
+    expect(html).toMatch(/<section id="features"/);
+    expect(html).toContain('id="features-2"');
+    expect(html).toContain('id="features-3"');
+  });
+
+  it("does not change stored section ids", () => {
+    const content = pageOf([sectionDefinitions.hero.createDefault()]);
+    const before = JSON.stringify(content);
+    renderToStaticMarkup(<PageRenderer content={content} />);
+    expect(JSON.stringify(content)).toBe(before);
   });
 });

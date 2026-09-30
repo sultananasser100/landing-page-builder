@@ -73,6 +73,12 @@ describe("PagesList", () => {
     expect(html).not.toContain("published");
   });
 
+  it("links the empty state to the New page screen", () => {
+    expect(render([])).toMatch(
+      /<a [^>]*href="\/dashboard\/pages\/new"[^>]*>Create your first page<\/a>/,
+    );
+  });
+
   it("summarises the page counts from the list itself", () => {
     expect(render([published, draft])).toContain("2 pages · 1 published");
     expect(render([draft])).toContain("1 page · 0 published");

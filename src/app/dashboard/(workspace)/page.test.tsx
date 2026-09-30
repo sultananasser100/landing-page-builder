@@ -74,6 +74,12 @@ describe("dashboard page", () => {
     expect(html).toContain("Sample SaaS page");
   });
 
+  it("links to the New page screen", async () => {
+    mockListDashboardPages.mockResolvedValue([]);
+    const html = renderToStaticMarkup(await DashboardPage());
+    expect(html).toMatch(/<a [^>]*href="\/dashboard\/pages\/new"[^>]*>New page<\/a>/);
+  });
+
   it("renders the empty state when there are no pages", async () => {
     mockListDashboardPages.mockResolvedValue([]);
     const html = renderToStaticMarkup(await DashboardPage());

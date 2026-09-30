@@ -23,9 +23,10 @@ export const sectionRenderers: { [T in SectionType]: SectionRenderer<T> } = {
   footer: FooterSection,
 };
 
-export function RenderSection({ section }: { section: Section }) {
+/** `anchor` becomes the element's DOM id (see `sectionAnchors`). */
+export function RenderSection({ section, anchor }: { section: Section; anchor: string }) {
   // TypeScript cannot correlate `section.type` with `section.data` through the
   // lookup, so widen the renderer; the mapped type above guarantees the pairing.
   const Renderer = sectionRenderers[section.type] as SectionRenderer<SectionType>;
-  return <Renderer id={section.id} data={section.data} />;
+  return <Renderer id={anchor} data={section.data} />;
 }

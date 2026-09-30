@@ -22,6 +22,12 @@ export function PagesList({ pages }: { pages: DashboardPage[] }) {
         <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
           Landing pages will be listed here with their status and public URL.
         </p>
+        <Link
+          href="/dashboard/pages/new"
+          className={buttonVariants({ variant: "outline", size: "sm", className: "mt-4" })}
+        >
+          Create your first page
+        </Link>
       </div>
     );
   }

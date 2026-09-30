@@ -328,6 +328,31 @@ describe("SectionMoveControls", () => {
 describe("EditorCanvas", () => {
   const noErrors: ReadonlySet<string> = new Set();
 
+  it("uses the same type-based anchors as the published page, not the stored ids", () => {
+    const uuidSections = [
+      sectionDefinitions.hero.createDefault(),
+      sectionDefinitions.features.createDefault(),
+      sectionDefinitions.features.createDefault(),
+    ] as Section[];
+    const html = renderToStaticMarkup(
+      <EditorCanvas
+        sections={uuidSections}
+        selectedId={null}
+        sectionsWithErrors={noErrors}
+        onSelect={noop}
+      />,
+    );
+    expect(html).toContain('id="hero"');
+    expect(html).toContain('id="features"');
+    expect(html).toContain('id="features-2"');
+    for (const section of uuidSections) {
+      // (leading space: `data-section-id="…"` legitimately holds the stored id)
+      expect(html).not.toContain(` id="${section.id}"`);
+      // Stored ids stay the identity used by the editor.
+      expect(html).toContain(`data-section-id="${section.id}"`);
+    }
+  });
+
   it("renders an inert preview of each section with a labelled select button", () => {
     const html = renderToStaticMarkup(
       <EditorCanvas

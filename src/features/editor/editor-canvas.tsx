@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 
+import { sectionAnchors } from "@/features/sections/anchors";
 import type { Section } from "@/features/sections/page-content";
 import { RenderSection } from "@/features/sections/renderers";
 import { cn } from "@/lib/utils";
@@ -27,6 +28,8 @@ export function EditorCanvas({
   onSelect: (id: string) => void;
 }) {
   const itemRefs = useRef(new Map<string, HTMLDivElement>());
+  // The same anchors as the published page.
+  const anchors = sectionAnchors(sections);
 
   useEffect(() => {
     if (selectedId) itemRefs.current.get(selectedId)?.scrollIntoView({ block: "nearest" });
@@ -40,7 +43,7 @@ export function EditorCanvas({
             This page has no sections yet. Use “Add section” to add one.
           </p>
         ) : (
-          sections.map((section) => {
+          sections.map((section, index) => {
             const selected = section.id === selectedId;
             const label = sectionLabel(section);
             return (
@@ -62,7 +65,7 @@ export function EditorCanvas({
                   </div>
                 ) : (
                   <div inert>
-                    <RenderSection section={section} />
+                    <RenderSection section={section} anchor={anchors[index]!} />
                   </div>
                 )}
                 <button

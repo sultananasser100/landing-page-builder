@@ -4,16 +4,30 @@ import { RedirectError } from "@/features/auth/test-utils";
 import { samplePageContent } from "@/features/sections/sample-page";
 
 import type * as Actions from "./actions";
+import { initialCreatePageState, SLUG_TAKEN } from "./create-page-input";
 
 const calls: string[] = [];
 const mockRequireAdmin = jest.fn<() => Promise<unknown>>();
 const mockSaveDraft = jest.fn<(args: unknown) => Promise<unknown>>();
 const mockPublish = jest.fn<(args: unknown) => Promise<unknown>>();
+const mockCreatePage = jest.fn<(args: unknown) => Promise<unknown>>();
 
 jest.mock("@/features/auth/session", () => ({
   requireAdmin: () => {
     calls.push("requireAdmin");
     return mockRequireAdmin();
+  },
+}));
+jest.mock("next/navigation", () => ({
+  redirect: (url: string) => {
+    calls.push("redirect");
+    throw new RedirectError(url);
+  },
+}));
+jest.mock("./create-page", () => ({
+  createPage: (args: unknown) => {
+    calls.push("createPage");
+    return mockCreatePage(args);
   },
 }));
 jest.mock("./mutations", () => ({
@@ -31,9 +45,10 @@ jest.mock("./mutations", () => ({
 // not hoist `jest.mock` from @jest/globals.
 let savePageDraft: typeof Actions.savePageDraft;
 let publishPage: typeof Actions.publishPage;
+let createPageFromTemplate: typeof Actions.createPageFromTemplate;
 
 beforeAll(async () => {
-  ({ savePageDraft, publishPage } = await import("./actions"));
+  ({ savePageDraft, publishPage, createPageFromTemplate } = await import("./actions"));
 });
 
 const VERSION = "2026-09-29T10:00:00.000Z";
@@ -43,7 +58,9 @@ const success = { ok: true, version: VERSION, status: "draft", publishedAt: null
 
 beforeEach(() => {
   calls.length = 0;
-  for (const mock of [mockRequireAdmin, mockSaveDraft, mockPublish]) mock.mockReset();
+  for (const mock of [mockRequireAdmin, mockSaveDraft, mockPublish, mockCreatePage]) {
+    mock.mockReset();
+  }
   mockRequireAdmin.mockResolvedValue({ subject: "admin" });
   mockSaveDraft.mockResolvedValue(success);
   mockPublish.mockResolvedValue(success);
@@ -131,6 +148,72 @@ describe("publishPage", () => {
     mockPublish.mockRejectedValue(new Error("boom"));
 
     expect(await publishPage(publishInput)).toEqual({ ok: false, reason: "error" });
+    expect(consoleError).toHaveBeenCalled();
+    consoleError.mockRestore();
+  });
+});
+
+describe("createPageFromTemplate", () => {
+  function form(fields: Record<string, string>) {
+    const data = new FormData();
+    for (const [key, value] of Object.entries(fields)) data.set(key, value);
+    return data;
+  }
+  const valid = { name: "Summer Sale", slug: "summer-sale", templateId: "saas" };
+
+  it("checks the admin session before creating anything, then redirects", async () => {
+    mockCreatePage.mockResolvedValue({ ok: true, id: "new-id" });
+    await expect(
+      createPageFromTemplate(initialCreatePageState, form(valid)),
+    ).rejects.toMatchObject({ url: "/dashboard/pages/new-id" });
+    expect(calls).toEqual(["requireAdmin", "createPage", "redirect"]);
+  });
+
+  it("does not create when the visitor is not signed in", async () => {
+    mockRequireAdmin.mockRejectedValue(new RedirectError("/login"));
+    await expect(
+      createPageFromTemplate(initialCreatePageState, form(valid)),
+    ).rejects.toMatchObject({ url: "/login" });
+    expect(mockCreatePage).not.toHaveBeenCalled();
+  });
+
+  it("creates the page from the trimmed, validated input", async () => {
+    mockCreatePage.mockResolvedValue({ ok: true, id: "new-id" });
+    await expect(
+      createPageFromTemplate(initialCreatePageState, form({ ...valid, name: "  Summer Sale " })),
+    ).rejects.toMatchObject({ url: "/dashboard/pages/new-id" });
+    expect(mockCreatePage).toHaveBeenCalledWith(valid);
+  });
+
+  it("returns a field-level error for a taken slug, without redirecting", async () => {
+    mockCreatePage.mockResolvedValue({ ok: false, reason: "slug_taken" });
+    expect(await createPageFromTemplate(initialCreatePageState, form(valid))).toEqual({
+      errors: { slug: SLUG_TAKEN },
+    });
+    expect(calls).not.toContain("redirect");
+  });
+
+  it("returns field errors for invalid input without creating", async () => {
+    const state = await createPageFromTemplate(
+      initialCreatePageState,
+      form({ name: " ", slug: "Bad Slug", templateId: "agency" }),
+    );
+    expect(Object.keys(state.errors).sort()).toEqual(["name", "slug", "templateId"]);
+    expect(mockCreatePage).not.toHaveBeenCalled();
+  });
+
+  it("treats missing fields as invalid", async () => {
+    const state = await createPageFromTemplate(initialCreatePageState, form({}));
+    expect(Object.keys(state.errors).sort()).toEqual(["name", "slug", "templateId"]);
+  });
+
+  it("logs unexpected failures and returns a generic form error without leaking details", async () => {
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+    mockCreatePage.mockRejectedValue(new Error("connection lost: secret-detail"));
+
+    const state = await createPageFromTemplate(initialCreatePageState, form(valid));
+    expect(state.errors.form).toBeDefined();
+    expect(JSON.stringify(state)).not.toContain("secret-detail");
     expect(consoleError).toHaveBeenCalled();
     consoleError.mockRestore();
   });
