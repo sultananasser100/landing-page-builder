@@ -1,14 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 
-import type { EditorPage } from "@/features/pages/admin-queries";
+import { publishPage, savePageDraft } from "@/features/pages/actions";
+import type { EditorPage, PageStatus } from "@/features/pages/admin-queries";
 import { sectionDefinitions } from "@/features/sections/definitions";
 import type { PageContent, SectionType } from "@/features/sections/page-content";
 import { cn } from "@/lib/utils";
 
 import { EditorCanvas } from "./editor-canvas";
-import { EditorHeader } from "./editor-header";
+import { feedbackFor, type ActionKind } from "./action-results";
+import { EditorHeader, type ActionFeedback } from "./editor-header";
 import {
   createEditorState,
   editorReducer,
@@ -28,8 +38,9 @@ import {
 } from "./validation";
 
 /**
- * The interactive editor. All state is in memory (useReducer): nothing is
- * saved, so every change is lost on reload or navigation — the UI says so and
+ * The interactive editor. Edits live in memory (useReducer) until the admin
+ * clicks Save, which sends them to a Server Action; Publish then publishes the
+ * saved draft. Unsaved edits are lost on reload or navigation, so the editor
  * warns before leaving.
  */
 export function PageEditor({
@@ -42,6 +53,12 @@ export function PageEditor({
   const [state, dispatch] = useReducer(editorReducer, initialContent, createEditorState);
   const [view, setView] = useState<EditorView>("edit");
   const [announcement, setAnnouncement] = useState("");
+  // Page facts that change after a save or publish (the loaded values come
+  // from the server; action results replace them).
+  const [version, setVersion] = useState(page.version);
+  const [status, setStatus] = useState<PageStatus>(page.status);
+  const [feedback, setFeedback] = useState<ActionFeedback>(null);
+  const [pending, startTransition] = useTransition();
   const inspectorRef = useRef<HTMLDivElement>(null);
 
   const { content, selection } = state;
@@ -96,6 +113,32 @@ export function PageEditor({
     }
   };
 
+  const run = (kind: ActionKind) => {
+    // Snapshot what is being saved: edits made while it is in flight stay unsaved.
+    const sent = content;
+    setFeedback(null);
+    startTransition(async () => {
+      try {
+        const result =
+          kind === "save"
+            ? await savePageDraft({ pageId: page.id, expectedVersion: version, content: sent })
+            : await publishPage({ pageId: page.id, expectedVersion: version });
+
+        setFeedback(feedbackFor(kind, result, new Date()));
+        if (!result.ok) return;
+        setVersion(result.version);
+        setStatus(result.status);
+        if (kind === "save") dispatch({ type: "markSaved", saved: sent });
+      } catch {
+        // A network failure or an unexpected error from the action itself.
+        setFeedback({
+          tone: "error",
+          message: `Couldn't ${kind} because something went wrong. Please try again.`,
+        });
+      }
+    });
+  };
+
   const addSection = (type: SectionType) =>
     dispatch({ type: "addSection", section: sectionDefinitions[type].createDefault() });
 
@@ -116,8 +159,13 @@ export function PageEditor({
     <div className="flex min-h-0 flex-1 flex-col lg:h-dvh lg:flex-none">
       <EditorHeader
         page={page}
+        status={status}
         counts={totals}
         dirty={dirty}
+        pending={pending}
+        feedback={feedback}
+        onSave={() => run("save")}
+        onPublish={() => run("publish")}
         onReset={() => dispatch({ type: "reset" })}
       />
       <EditorViewToggle view={view} onChange={setView} />

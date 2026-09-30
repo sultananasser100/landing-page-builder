@@ -26,7 +26,7 @@ export function PagesList({ pages }: { pages: DashboardPage[] }) {
     );
   }
 
-  const publishedCount = pages.filter((page) => page.status === "published").length;
+  const publishedCount = pages.filter((page) => page.status !== "draft").length;
 
   return (
     <div className="space-y-4">
@@ -69,7 +69,7 @@ function PageRow({ page }: { page: DashboardPage }) {
         >
           Edit<span className="sr-only"> {page.name}</span>
         </Link>
-        {page.status === "published" ? (
+        {page.status !== "draft" ? (
           <a
             href={publicPath}
             target="_blank"

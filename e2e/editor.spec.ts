@@ -4,7 +4,7 @@ import { E2E_ADMIN } from "./auth-fixtures";
 
 // Most editor specs need the seeded sample page ("Sample SaaS page") in the
 // test database. They skip themselves when it is absent; nothing here seeds or
-// modifies the database. The editor itself never writes to the database.
+// modifies the database. These specs only edit in memory and never click Save.
 const SAMPLE_PAGE_NAME = "Sample SaaS page";
 const MISSING_SAMPLE =
   "The test database has no 'Sample SaaS page'. Seed it (npm run db:seed with the test DATABASE_URL) to run the editor specs.";
@@ -61,7 +61,7 @@ test.describe("with the sample page", () => {
     for (const label of ["Hero", "Features", "Testimonials", "Pricing", "FAQ", "Call to action", "Footer"]) {
       await expect(outline(page).getByRole("button", { name: new RegExp(`^${label}`) })).toBeVisible();
     }
-    await expect(page.getByText("No changes")).toBeVisible();
+    await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
     await expect(page.getByRole("status").first()).toHaveText("All required content is filled in");
   });
 
@@ -82,7 +82,7 @@ test.describe("with the sample page", () => {
     await inspector(page).getByLabel("Heading", { exact: true }).fill("A brand new headline");
 
     await expect(preview(page).getByText("A brand new headline")).toBeVisible();
-    await expect(page.getByText("Unsaved changes · Saving isn't available yet")).toBeVisible();
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
   });
 
   test("empty required fields are flagged as needed to publish", async ({ page }) => {
@@ -140,7 +140,7 @@ test.describe("with the sample page", () => {
     await page.getByRole("button", { name: "Reset changes" }).click();
 
     await expect(title).toHaveValue(original);
-    await expect(page.getByText("No changes")).toBeVisible();
+    await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: "Reset changes" })).toBeDisabled();
   });
 
@@ -258,7 +258,7 @@ test.describe("section reordering", () => {
 
     await expectOrder(page, ["pricing", "hero", "features", "testimonials", "faq", "cta", "footer"]);
     await expect(announcement(page)).toHaveText("Pricing moved to position 1 of 7.");
-    await expect(page.getByText("Unsaved changes · Saving isn't available yet")).toBeVisible();
+    await expect(page.getByText("Unsaved changes", { exact: true })).toBeVisible();
   });
 
   test("dragging a section below another moves it down", async ({ page }) => {
@@ -292,7 +292,7 @@ test.describe("section reordering", () => {
     await dragSection(page, "Pricing", "Pricing", "after");
 
     await expectOrder(page, ORIGINAL);
-    await expect(page.getByText("No changes")).toBeVisible();
+    await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
   });
 
   test("reset restores the original order", async ({ page }) => {
@@ -303,7 +303,7 @@ test.describe("section reordering", () => {
     await page.getByRole("button", { name: "Reset changes" }).click();
 
     await expectOrder(page, ORIGINAL);
-    await expect(page.getByText("No changes")).toBeVisible();
+    await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
   });
 
   test("the handle reorders with the keyboard and keeps focus", async ({ page }) => {
@@ -322,7 +322,7 @@ test.describe("section reordering", () => {
     await page.keyboard.press("ArrowDown"); // already last: no change
     await page.keyboard.press("Home");
     await expectOrder(page, ORIGINAL);
-    await expect(page.getByText("No changes")).toBeVisible();
+    await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
   });
 
   test("Move up and Move down reorder the selected section", async ({ page }) => {
@@ -349,6 +349,6 @@ test.describe("section reordering", () => {
     await down.click();
     await expectOrder(page, ORIGINAL);
     await expect(inspector(page).getByRole("heading", { name: "Pricing" })).toBeVisible();
-    await expect(page.getByText("No changes")).toBeVisible();
+    await expect(page.getByText("All changes saved", { exact: true })).toBeVisible();
   });
 });

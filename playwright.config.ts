@@ -39,6 +39,9 @@ const baseURL = `http://localhost:${PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
+  // Refuses to run unless .env.test names a `_test` database, then resets the
+  // fixture pages. See e2e/global-setup.ts.
+  globalSetup: "./e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

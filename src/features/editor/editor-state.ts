@@ -27,6 +27,12 @@ export type EditorAction =
   | { type: "removeSection"; id: string }
   /** Moves a section to its final position `toIndex`; selection is unchanged. */
   | { type: "moveSection"; id: string; toIndex: number }
+  /**
+   * A save succeeded: `saved` (the exact content that was sent) becomes the
+   * baseline for Reset and the unsaved-changes check. Edits made while the save
+   * was in flight stay in `content` and remain unsaved.
+   */
+  | { type: "markSaved"; saved: PageContent }
   | { type: "reset" };
 
 function defaultSelection(content: PageContent): EditorSelection {
@@ -114,6 +120,9 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         content: { ...state.content, sections: moveItem(sections, from, toIndex) },
       };
     }
+
+    case "markSaved":
+      return { ...state, initial: action.saved };
 
     case "reset": {
       const selection =
