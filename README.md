@@ -5,12 +5,30 @@ template, edits them section by section, and publishes them at `/p/{slug}`.
 
 Built with Next.js, React, Prisma (PostgreSQL), Tailwind CSS, Jest and Playwright.
 
+**Live demo:** <https://landing-page-builder-plum.vercel.app/>. The admin area is
+login-protected; demo credentials are available on request.
+
 ## Prerequisites
 
 - Node.js 20.9 or newer (the Next.js requirement) and npm
 - Docker with Docker Compose, for the PostgreSQL database defined in
   [docker-compose.yml](docker-compose.yml) (Postgres 17, exposed on host port
   `5433`)
+
+## Quick start (for reviewers)
+
+1. Install the prerequisites above and start Docker.
+2. `npm install`
+3. Copy `.env.example` to `.env`. Set `ADMIN_EMAIL`, run
+   `npm run auth:hash-password` and paste its output as `ADMIN_PASSWORD_HASH`,
+   and set `SESSION_SECRET` (see below). Keep the password you chose; it is the
+   login.
+4. `npm run db:up`, `npm run db:generate`, `npm run db:migrate`
+5. Optional: `npm run db:seed` adds a public sample page at `/p/sample`.
+6. `npm run dev`, open <http://localhost:3000> and sign in with your
+   `ADMIN_EMAIL` and password.
+
+The details for each step follow.
 
 ## Setup
 
